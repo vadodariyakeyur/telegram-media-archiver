@@ -24,7 +24,7 @@ function load({ fetchImpl } = {}) {
   const zips = [];
   const src = read('src/content/80-archive.js').replace(/^\/\/ --- exports ---[\s\S]*$/m, '');
   const fn = new Function('JSZip', 'TG', 'fetch', 'URL', 'document', 'setTimeout',
-    src + '\nreturn { buildArchive, saveBlob, extFor };');
+    src + '\nreturn { buildArchive, saveBlob, extFor, nameFor };');
   return {
     api: fn(
       function () { const z = new FakeZip(); zips.push(z); return z; },
@@ -123,6 +123,40 @@ const report = () => {};
   assert.deepStrictEqual(phases, ['downloading', 'downloading', 'zipping'],
     'one downloading tick per item, then zipping');
 
+  // --- extensions for every kind ----------------------------------------
+  // A missing entry silently fell through to .jpg, which would have shipped
+  // round videos and music as images.
+  ({ api } = load());
+  for (const [kind, ext] of Object.entries({
+    photo: 'jpg', video: 'mp4', gif: 'mp4', round: 'mp4',
+    sticker: 'jpg', voice: 'ogg', music: 'mp3', file: 'bin',
+  })) {
+    assert.strictEqual(api.extFor(kind, null), ext, `${kind} falls back to .${ext}`);
+  }
+  // A real mime always beats the per-kind fallback.
+  assert.strictEqual(api.extFor('file', 'audio/mpeg'), 'mp3', 'mime wins over kind');
+
+  // --- document names ----------------------------------------------------
+  // Telegram's own filename is the point of downloading a document at all, but
+  // two chats can send the same name, so the sequence number must survive.
+  assert.strictEqual(api.nameFor({ name: 'report.pdf' }, 'file', 3, null),
+    'report_0003.pdf', 'document keeps its name and extension');
+  assert.strictEqual(api.nameFor({ name: 'archive.tar.gz' }, 'file', 1, null),
+    'archive.tar_0001.gz', 'only the last dot splits the extension');
+  assert.strictEqual(api.nameFor({ name: 'LICENSE' }, 'file', 2, null),
+    'LICENSE_0002.bin', 'extensionless name still gets one');
+  assert.strictEqual(api.nameFor({}, 'photo', 7, 'image/jpeg'),
+    'photo_0007.jpg', 'no name falls back to kind numbering');
+  // A leading dot is the whole name, not an empty stem with an extension.
+  assert.strictEqual(api.nameFor({ name: '.gitignore' }, 'file', 1, null),
+    '.gitignore_0001.bin', 'dotfile is not split');
+
+  // The name reaches the zip path, not just the helper.
+  ({ api, zips } = load());
+  await api.buildArchive([{ kind: 'file', blob: blob(10, ''), name: 'notes.txt' }], report);
+  assert.strictEqual(zips[0].files[0].path, 'file/notes_0001.txt',
+    'document name lands in the zip path');
+
   // --- buildArchive does no browser IO ----------------------------------
   // The whole point of the split: saving is somewhere else.
   const body = read('src/content/80-archive.js');
@@ -133,5 +167,5 @@ const report = () => {};
   assert.ok(/createObjectURL/.test(body.slice(body.indexOf('function saveBlob'))),
     'saveBlob is where the browser IO lives');
 
-  console.log('all 20 archive checks pass');
+  console.log('all 33 archive checks pass');
 })();

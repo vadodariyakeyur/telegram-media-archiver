@@ -98,5 +98,84 @@ TG.chatKey = () => openChat;
   assert.strictEqual(nextRun.stopping, false, 'a new run starts un-stopped by construction');
   await assert.doesNotReject(() => nextRun.pause(1), 'the next run is not pre-stopped');
 
-  console.log('all 18 stop/continue checks pass');
+  // --- a stopped DOWNLOAD stops promptly and saves NOTHING -----------------
+  // Opposite of a stopped scan, deliberately (see 99-main.js): a partial zip is
+  // a file the user must notice is incomplete, so cancel means cancel. The pass
+  // still returns cleanly rather than throwing — 99-main decides what a stop
+  // means, and it discards.
+  {
+    const src = read('src/content/70-collect.js');
+    const fn = src.slice(src.indexOf('async function loadPending'),
+                         src.indexOf('// --- exports ---'));
+
+    // Everything loadPending touches, stubbed to the shape it actually uses.
+    TG.findScroller = () => null;
+    TG.refind = async entry => entry.bubble;
+    TG.glideTo = async () => {};
+    TG.docStreamUrl = b => `https://x/stream/${b.id}`;
+    TG.openForSrc = async b => `https://x/stream/${b.id}`;
+    TG.closeViewer = () => {};
+
+    let live = TG.startRun('peer:aaa');
+    TG.currentRun = () => live;
+    TG.run = () => live;
+
+    // Item 3 stops mid-fetch, exactly as the bridge's abort watcher does.
+    TG.fetchViaPage = async (url) => {
+      if (url.endsWith('/c')) { live.stop(); throw new TG.Stopped(); }
+      return { size: 10 };
+    };
+
+    const loadPending = eval(`(${fn.trim().replace(/\}\s*$/, '}')})`);
+
+    const found = new Map();
+    // scrollIntoView/getBoundingClientRect are reached before the fetch, so a
+    // bare {id} stub never gets there and the pass silently tests nothing.
+    const bubbleFor = id => ({
+      id,
+      getBoundingClientRect: () => ({ top: 0, height: 10 }),
+      scrollIntoView: () => {},
+    });
+    const pending = ['a', 'b', 'c', 'd'].map((id, i) =>
+      ({ key: id, bubble: bubbleFor(id), kind: 'file', at: i * 100 }));
+
+    const res = await loadPending(found, pending, ['file'], () => {});
+
+    assert.strictEqual(res.stopped, true, 'the pass reports it was stopped');
+    assert.ok(!found.has('https://x/stream/d'),
+              'the pass stops rather than running on to later items');
+    assert.ok(res.failures.includes('stopped'), 'the stop is recorded, not silent');
+
+    // 99-main's rule, mirrored: a stopped pass never reaches the archive step.
+    const archives = r => { if (r.stopped) throw new TG.Stopped(); return true; };
+    assert.throws(() => archives(res), e => e instanceof TG.Stopped,
+                  'a stopped download discards its archive rather than saving a partial zip');
+    assert.strictEqual(archives({ stopped: false }), true,
+                       'a completed download still archives');
+  }
+
+  // A chat switch mid-download still discards: that archive would mix two chats.
+  {
+    const src = read('src/content/70-collect.js');
+    const fn = src.slice(src.indexOf('async function loadPending'),
+                         src.indexOf('// --- exports ---'));
+    const loadPending = eval(`(${fn.trim().replace(/\}\s*$/, '}')})`);
+
+    let live = TG.startRun('peer:aaa');
+    TG.currentRun = () => live;
+    TG.run = () => live;
+    TG.fetchViaPage = async () => { openChat = 'peer:bbb'; live.check(); };
+
+    const pending = [{
+      key: 'a',
+      bubble: { id: 'a', getBoundingClientRect: () => ({ top: 0, height: 10 }), scrollIntoView: () => {} },
+      kind: 'file', at: 0,
+    }];
+    await assert.rejects(() => loadPending(new Map(), pending, ['file'], () => {}),
+      e => e instanceof TG.Cancelled,
+      'Cancelled still propagates out of the download pass');
+    openChat = 'peer:aaa';
+  }
+
+  console.log('all 24 stop/continue checks pass');
 })();

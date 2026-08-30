@@ -39,7 +39,9 @@ function fetchViaPage(url, onProgress, timeoutMs = 180000) {
 
       if (m[TAG] === 'done') {
         settle();
-        resolve(new Blob([m.buffer], { type: m.mime || 'video/mp4' }));
+        // No mime default: this pass fetches documents and audio too, and a
+        // wrong type here would name every one of them .mp4.
+        resolve(new Blob([m.buffer], m.mime ? { type: m.mime } : undefined));
       } else if (m[TAG] === 'error') {
         settle();
         reject(new Error(m.message));

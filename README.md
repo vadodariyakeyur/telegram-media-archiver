@@ -18,6 +18,8 @@ as a single zip. Scan first to see what's there, then pick which types to save.
 4. Leave the tab in the foreground until the zip is saved
 
 Files land in the zip under one folder per type (`photo/`, `video/`, …).
+Documents keep their original filename, with a sequence number appended so two
+files sharing a name cannot overwrite each other.
 
 Works on private chats: it reads media the Telegram app has already loaded and
 decrypted in your own authenticated session. It does not touch MTProto, keys,
@@ -31,7 +33,14 @@ stored for later. Telegram revokes a blob URL as soon as its message scrolls
 out of the rendered window, so a URL collected early in a long chat is usually
 dead by the time the download runs.
 
-Videos work differently, in two ways.
+Eight kinds are detected: photos, videos, GIFs, round video messages,
+stickers, voice notes, music and documents. GIFs and round messages are checked
+before plain video, which would otherwise swallow both; voice and music split on
+whether the bubble draws a waveform or a title row. Documents are matched last,
+just before the photo fallback, because a document row often renders a thumbnail
+and would otherwise be archived as the preview instead of the attachment.
+
+Videos, GIFs, round messages and documents work differently, in two ways.
 
 First, a `<video>` element's `blob:` URL is only the **streaming buffer**, not
 the file — fetching it returns truncated or empty data. The real bytes live
@@ -202,6 +211,11 @@ result and resets the popup rather than reporting a failure.
   the rendered list — re-scanning usually recovers it.
 - Scan-time type detection still keys off message-list class names, which vary
   between Telegram builds. If a count looks wrong, that is where it went wrong.
+  The voice/music split is the weakest of these: an `<audio>` with neither a
+  waveform nor a title row is filed as a voice note.
+- Documents are fetched from the row's own download URL, not the media viewer.
+  A document Telegram has not cached yet is clicked once to start that download
+  and then waited on, so a large uncached file can time out.
 - Only media Telegram renders while scrolling is seen. Very long chats need
   patience; the scroll pass stops after 4 idle rounds.
 - A still whose blob URL was already revoked when the scan reached it is
@@ -222,7 +236,7 @@ result and resets the popup rather than reporting a failure.
         40-viewer.js        driving Telegram's media viewer
         50-scan.js          scroll the chat, inventory what is there
         60-locate.js        re-finding recycled message nodes
-        70-collect.js       open each video, pull its bytes
+        70-collect.js       fetch the bytes the scan could only queue
         80-archive.js       pack (buildArchive) + save (saveBlob)
         90-session.js       what was scanned, and what may follow
         99-main.js          run state + the popup message contract

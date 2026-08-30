@@ -112,3 +112,4 @@ TG.chatKey = chatKey;
 TG.glideTo = glideTo;
 TG.findScroller = findScroller;
 TG.chatName = chatName;
+TG.safeName = safeName;   // document filenames, in 20-classify.js

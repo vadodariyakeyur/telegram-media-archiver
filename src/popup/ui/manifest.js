@@ -5,7 +5,24 @@ import { els } from './dom.js';
 export const selected = () =>
   [...els.types.querySelectorAll('input:checked')].map(c => c.value);
 
+// While a download runs the button cancels it instead of starting another.
+// Kept here rather than in render.js because syncGo() owns this button's label
+// and would otherwise overwrite the cancel text on the next checkbox tick.
+let cancelling = false;
+
+export function setGoCancels(yes) {
+  cancelling = yes;
+  syncGo();
+}
+
+export const goCancels = () => cancelling;
+
 export function syncGo() {
+  if (cancelling) {
+    els.go.disabled = false;
+    els.go.textContent = 'Cancel download';
+    return;
+  }
   const n = selected().length;
   els.go.disabled = n === 0;
   els.go.textContent = n ? `Download selected (${n})` : 'Download selected';
@@ -38,7 +55,6 @@ function buildRow(t) {
 
 export function renderTypes(types) {
   els.types.replaceChildren();
-  if (els.hint) els.hint.hidden = !!types?.length;
   if (!types?.length) { els.types.className = 'empty'; els.go.hidden = true; return; }
 
   const bar = document.createElement('div');

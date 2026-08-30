@@ -15,7 +15,7 @@
 
   async function fetchRanged(url, id) {
     const parts = [];
-    let offset = 0, total = null, mime = 'video/mp4';
+    let offset = 0, total = null, mime = null;
 
     while (total === null || offset < total) {
       const res = await fetch(url, { headers: { Range: `bytes=${offset}-` } });

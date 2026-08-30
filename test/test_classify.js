@@ -29,14 +29,24 @@ const cases = [
   ['video w/ duration badge (/k/)', '<div class="media-container"><span>0:42</span></div>', 1, 'video'],
   ['video w/ hh:mm:ss badge',       '<div><span>1:02:33</span></div>', 1, 'video'],
   ['video by class (/a/)',          '<div class="media-video"></div>', 1, 'video'],
-  ['round video note',              '<div class="is-round"></div>', 1, 'video'],
-  ['gif folds into video',          '<div class="media-gif"></div>', 1, 'video'],
+  // Round notes and GIFs used to fold into video. They are their own kinds now,
+  // and both must be checked BEFORE video, which would otherwise swallow them.
+  ['round video note',              '<div class="is-round"></div>', 1, 'round'],
+  ['round note beats duration',     '<div class="video-note"><span>0:12</span></div>', 1, 'round'],
+  ['gif is its own kind',           '<div class="media-gif"></div>', 1, 'gif'],
+  ['gif beats duration badge',      '<div class="media-gif"><span>0:03</span></div>', 1, 'gif'],
   ['plain photo',                   '<div class="media-photo"></div>', 1, 'photo'],
   ['photo w/ caption text',         '<div class="text-content">hello there</div>', 1, 'photo'],
   ['sticker',                       '<div class="sticker-wrapper"></div>', 1, 'sticker'],
   ['voice by <audio>',              '<audio></audio>', 0, 'voice'],
   ['voice by waveform class',       '<div class="waveform"></div>', 0, 'voice'],
+  // An uploaded track carries a title row; a recorded note carries a waveform.
+  // Both are <audio>, so the markup is the only thing separating them.
+  ['music by title row',            '<audio></audio><div class="audio-title">Song</div>', 0, 'music'],
   ['document, no thumb',            '<div class="document"><span class="file-name">a.pdf</span></div>', 0, 'file'],
+  // A document checked last, not first: this bubble has a thumbnail AND an
+  // attachment, and the earlier branches must not have claimed it as a photo.
+  ['document with a thumbnail',     '<div class="document"><span class="document-name">a.zip</span></div>', 1, 'file'],
   ['text only -> nothing',          '<div class="text-content">just text</div>', 0, null],
 ];
 

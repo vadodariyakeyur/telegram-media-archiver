@@ -31,7 +31,10 @@ const server = (size, chunk, opts = {}) => async (url, init) => {
   global.fetch = server(1000, 300);
   const b = await fetchRanged('u');
   assert.strictEqual(b.buffer.byteLength, 1000, 'multi-chunk size');
-  assert.strictEqual(b.mime, 'video/mp4', 'mime preserved');
+  // No Content-Type from this server, and the fetch no longer assumes one: the
+  // same pass now carries documents and audio, which a video/mp4 default
+  // mislabelled. The archive picks an extension from the kind instead.
+  assert.strictEqual(b.mime, null, 'mime unset when the server sends none');
 
   // Exact multiple of chunk size must not loop forever or over-read.
   global.fetch = server(900, 300);

@@ -198,8 +198,17 @@
   #hint p { margin: 0 0 7px; }
   #hint p:last-child { margin-bottom: 0; }
   #hint em { font-style: normal; color: var(--ink); }
+  /* The one thing in the panel that names the chat being archived, so it takes
+     the accent rather than the header's dim grey. text-transform: none because
+     the header uppercases, and a chat name is not the panel's to shout. */
+  #hint b .chat {
+    color: var(--signal);
+    text-transform: none; letter-spacing: 0.02em;
+  }
   #status .line { display: flex; gap: 8px; }
-  #status .t { color: var(--rule); flex: none; font-variant-numeric: tabular-nums; }
+  /* --dim, not --rule: a divider colour is invisible as text against the
+     panel, which is what a timestamp column had been. */
+  #status .t { color: var(--dim); flex: none; font-variant-numeric: tabular-nums; }
   #status .line.live .m { color: var(--signal); }
   #status .line.ok   .m { color: var(--ok); }
   #status .line.err  .m { color: var(--err); }
@@ -214,6 +223,8 @@
     font: 400 10px/1.5 var(--mono);
     color: var(--dim);
     letter-spacing: 0.03em;
+    text-align: center;
+    opacity: 0.7;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -232,17 +243,11 @@
   <button id="more" hidden>Continue scanning</button>
   <div id="types" class="empty"></div>
 
-  <div id="hint">
-    <b>What happens</b>
-    <p>Scanning scrolls the whole chat and counts what it finds, by type.
-       Nothing downloads yet.</p>
-    <p>You then pick the types to keep and get one <em>.zip</em>, foldered
-       by type.</p>
-  </div>
+  <div id="hint" aria-live="polite"></div>
   <button id="go" class="ghost" hidden>Download selected</button>
   <div id="status" role="log" aria-live="polite"></div>
 </main>
 
-<footer>Open a chat first. Keep the tab in front while it runs.</footer>
+<footer>Made with ❤️ by vK</footer>
 
 <script type="module" src="main.js"></script>

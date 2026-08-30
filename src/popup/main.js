@@ -1,16 +1,17 @@
 import { els } from './ui/dom.js';
 import { log, setState, resetLog } from './ui/log.js';
 import { activeTab } from './ui/tabs.js';
-import { selected, renderTypes } from './ui/manifest.js';
-import { render } from './ui/render.js';
+import { selected, renderTypes, goCancels } from './ui/manifest.js';
+import { render, markStopAsked } from './ui/render.js';
+import { setPage } from './ui/hint.js';
 import { applyTheme } from './ui/theme.js';
 
 (async () => {
   const tab = await activeTab();
   if (!tab) {
     applyTheme(null);
+    setPage({ reachable: false });
     setState('No chat', 'fail');
-    log('Open web.telegram.org and select a chat', 'err');
     els.scan.disabled = true;
     return;
   }
@@ -23,10 +24,19 @@ import { applyTheme } from './ui/theme.js';
     applyTheme(res?.theme || null);
   } catch { applyTheme(null); }
 
-  try { render(await chrome.tabs.sendMessage(tab.id, { type: 'GET_STATE' })); } catch {}
+  // A throw here means no content script answered — the tab is not Telegram,
+  // or it needs a reload after the extension was updated.
+  try {
+    render(await chrome.tabs.sendMessage(tab.id, { type: 'GET_STATE' }));
+  } catch {
+    setPage({ reachable: false });
+    setState('No chat', 'fail');
+    els.scan.disabled = true;
+  }
 })();
 
 async function send(payload, busyText, busyState) {
+  markStopAsked(false);
   const tab = await activeTab();
   if (!tab) {
     setState('No chat', 'fail');
@@ -51,6 +61,8 @@ els.scan.onclick = () => {
 };
 
 els.go.onclick = () => {
+  // Doubles as the download's cancel button (see setGoCancels in ui/manifest.js).
+  if (goCancels()) { requestStop(); return; }
   const kinds = selected();
   send({ type: 'DOWNLOAD', kinds },
        `Downloading ${kinds.join(', ')}`, 'Downloading');
@@ -63,12 +75,16 @@ els.more.onclick = () => {
   send({ type: 'CONTINUE' }, 'Continuing scan', 'Scanning');
 };
 
-els.stop.onclick = async () => {
-  // Deliberately NOT send(): that helper rewrites the run state, which would
-  // clobber the live progress line the user is watching. A stop only asks —
-  // the run reports its own end via STOPPED.
-  els.stop.disabled = true;
-  els.stop.textContent = 'Stopping…';
+// Deliberately NOT send(): that helper rewrites the run state, which would
+// clobber the live progress line the user is watching. A stop only asks — the
+// run reports its own end via STOPPED.
+async function requestStop() {
+  markStopAsked();
+  // Whichever button was pressed is the one to acknowledge on; the other is
+  // hidden for this phase (see setBusy in ui/render.js).
+  const btn = goCancels() ? els.go : els.stop;
+  btn.disabled = true;
+  btn.textContent = 'Stopping…';
   log('Stop requested — finishing the current step', 'live');
 
   const tab = await activeTab();
@@ -79,6 +95,8 @@ els.stop.onclick = async () => {
   } catch {
     log('Cannot reach the page — reload the Telegram tab', 'err');
   }
-};
+}
+
+els.stop.onclick = requestStop;
 
 chrome.runtime.onMessage.addListener(render);

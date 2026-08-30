@@ -5,7 +5,23 @@ function extFor(kind, mime) {
     const m = mime.split('/')[1]?.split(';')[0];
     if (m) return { quicktime: 'mov', jpeg: 'jpg', mpeg: 'mp3', 'x-matroska': 'mkv', ogg: 'ogg' }[m] || m;
   }
-  return { video: 'mp4', gif: 'mp4', voice: 'ogg', file: 'bin' }[kind] || 'jpg';
+  return {
+    video: 'mp4', gif: 'mp4', round: 'mp4',
+    voice: 'ogg', music: 'mp3', file: 'bin',
+  }[kind] || 'jpg';
+}
+
+// Telegram's own filename, when the scan captured one. A zip full of
+// file_0001.bin is not an archive of anything — but two chats can send the same
+// name, so the sequence number stays as the collision break.
+function nameFor(item, kind, n, mime) {
+  const seq = String(n).padStart(4, '0');
+  const raw = item.name;
+  if (!raw) return `${kind}_${seq}.${extFor(kind, mime)}`;
+  const dot = raw.lastIndexOf('.');
+  const stem = dot > 0 ? raw.slice(0, dot) : raw;
+  const ext = dot > 0 ? raw.slice(dot + 1) : extFor(kind, mime);
+  return `${stem}_${seq}.${ext}`;
 }
 
 // Returns a Blob rather than saving it: naming, numbering, foldering and the
@@ -22,8 +38,8 @@ async function buildArchive(items, report) {
     report({ phase: 'downloading', done: i, total: items.length });
     try {
       const kind = items[i].kind;
-      // Videos arrive pre-fetched (assembled from Range chunks while the viewer
-      // was open); everything else is a live blob: URL in the page.
+      // Deferred kinds arrive pre-fetched (assembled from Range chunks by the
+      // collect pass); everything else is a live blob: URL in the page.
       let blob = items[i].blob;
       if (!blob) {
         const res = await fetch(items[i].url);
@@ -34,7 +50,7 @@ async function buildArchive(items, report) {
 
       const n = (counts[kind] = (counts[kind] || 0) + 1);
       total++;
-      zip.file(`${kind}/${kind}_${String(n).padStart(4, '0')}.${extFor(kind, blob.type)}`, blob);
+      zip.file(`${kind}/${nameFor(items[i], kind, n, blob.type)}`, blob);
     } catch {
       // A blob can be revoked between scan and fetch; skip and keep going.
       failed++;

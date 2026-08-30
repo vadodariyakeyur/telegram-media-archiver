@@ -62,6 +62,9 @@ function begin(job) {
 function scanProgress(p) {
   const m = { type: 'PROGRESS', ...p };
   if (p.counts) m.types = typeRows(p.counts);
+  // Resolve the label here for the same reason as typeRows below: the panel
+  // holds no copy of the type names.
+  if (p.kind) m.label = TG.TYPES[p.kind] || p.kind;
   delete m.counts;
   return m;
 }
@@ -101,6 +104,11 @@ if (alive()) chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) =
     // A panel opening after a chat switch must not be handed stale results.
     if (!running) invalidateIfChatChanged();
     sendResponse(state);
+    // A freshly opened panel has no page state yet, and no mutation may arrive
+    // for minutes in a quiet chat. Reset the signature so this is never
+    // suppressed as a duplicate of what a PREVIOUS panel was told.
+    lastPage = '';
+    announcePage();
     return;
   }
 
@@ -157,32 +165,88 @@ if (alive()) chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) =
     if (refusal) { sendResponse({ error: refusal }); return; }
 
     const ok = begin(async () => {
-      // Video bytes are only reachable while the viewer is open, so fetch those
-      // first; the reasons any of them failed are worth showing.
-      const vidFails = await TG.loadPending(
+      // Deferred kinds (video, gif, round, documents) have no bytes in the page,
+      // so fetch those first; the reasons any of them failed are worth showing.
+      const { failures: fails, stopped } = await TG.loadPending(
         session.scan.found, session.scan.pending, kinds,
         p => push({ type: 'PROGRESS', ...p }));
+      // A stopped download saves NOTHING. This is the opposite of a stopped
+      // scan, deliberately: a scan's partial manifest is the point of stopping
+      // one, but a partial zip is a file the user has to notice is incomplete,
+      // and its name says nothing about that. Cancel means cancel.
+      if (stopped) throw new TG.Stopped();
+
       const items = session.itemsFor(kinds);
-      // Report why the videos failed rather than a generic empty-set message —
-      // the reason is the only thing that makes this debuggable.
+      // Report why they failed rather than a generic empty-set message — the
+      // reason is the only thing that makes this debuggable.
       if (!items.length) {
-        throw new Error(vidFails.length
-          ? `All ${vidFails.length} failed: ${[...new Set(vidFails)].join('; ')}`
+        throw new Error(fails.length
+          ? `All ${fails.length} failed: ${[...new Set(fails)].join('; ')}`
           : 'Nothing to download for the selected types.');
       }
       const res = await TG.zipAndSave(items, p => push({ type: 'PROGRESS', ...p }));
-      push({ type: 'DONE', ...res, videoFailed: vidFails.length, reasons: [...new Set(vidFails)].slice(0, 3) });
+      push({
+        type: 'DONE', ...res,
+        fetchFailed: fails.length,
+        reasons: [...new Set(fails)].slice(0, 3),
+      });
     });
     sendResponse(ok ? { ok: true } : { error: 'Already running.' });
     return;
   }
 });
 
+// What chat the panel is looking at, so it can say what to do about it.
+// Deliberately send() and NOT push(): this is page state, not run state — the
+// next GET_STATE must answer with the run, not with a chat name.
+function pageInfo() {
+  const key = TG.chatKey();
+  return { type: 'PAGE', open: key !== 'none', name: key === 'none' ? null : TG.chatName() };
+}
+
+let lastPage = '';
+function announcePage() {
+  const info = pageInfo();
+  // The observer below fires on every header repaint (typing indicators, online
+  // status), so only a real change is worth a message.
+  const sig = `${info.open}|${info.name}`;
+  if (sig === lastPage) return;
+  lastPage = sig;
+  send(info);
+}
+
+// A subtree observer on the whole body fires per rendered message, and a scan
+// renders thousands — reading the header on each would put a DOM query in the
+// scroll loop's hot path. One check per frame is far more than enough for a
+// chat switch a human performed.
+let pageQueued = false;
+function queuePageCheck() {
+  if (pageQueued) return;
+  pageQueued = true;
+  setTimeout(() => { pageQueued = false; announcePage(); }, 250);
+}
+
 // The panel may be open while the user switches chats, in which case nothing
 // would ask for state.
 addEventListener('hashchange', () => {
+  announcePage();
   // A run in progress cancels itself: its next checkpoint sees the chat no
   // longer matches and unwinds, which pushes RESET from begin()'s handler.
   if (running) return;
   if (invalidateIfChatChanged()) send(state);
 });
+
+// Both clients swap the open chat WITHOUT touching the URL in some flows
+// (search results, the archived list), so hashchange alone misses those.
+// Observing document.body rather than the header: the header element itself is
+// replaced on a chat switch, so an observer bound to it would watch a detached
+// node from then on.
+// try/catch for the same reason as the listener registration above: this runs
+// at load, and anything that throws here takes the whole content script with
+// it — the panel would then see a tab with no archiver in it at all.
+if (alive()) {
+  try {
+    new MutationObserver(queuePageCheck)
+      .observe(document.body, { childList: true, subtree: true });
+  } catch { /* no observer: hashchange still covers URL navigation */ }
+}

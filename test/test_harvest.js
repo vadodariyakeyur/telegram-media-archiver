@@ -27,8 +27,22 @@ global.fetch = async u => live.has(u)
 // grab() slices from `function name(`, dropping any `async ` prefix, so re-add
 // it. `const` inside eval() is block-scoped and would not escape, hence the
 // explicit global assignment.
+// DEFERRED is a module-level const, not a function, so grab() cannot reach it
+// and `const` in eval() would not escape this scope anyway. Mirror the real
+// set rather than restating it: a kind added to the module must not silently
+// stay non-deferred here.
+// harvest returns the in-flight fetches rather than awaiting them, so the
+// caller can report counts first. `await h(...)` resolves the ARRAY, not the
+// promises in it — settle them, exactly as the scan loop does.
+const sweep = async (found, pending) => { await Promise.all(await h(found, pending)); };
+
 let h;
+const DEFERRED_SRC = /const DEFERRED = new Set\((\[[^\]]*\])\)/.exec(src);
+assert.ok(DEFERRED_SRC, 'DEFERRED set found in 20-classify.js');
+global.DEFERRED = new Set(JSON.parse(DEFERRED_SRC[1].replace(/'/g, '"')));
+
 eval(grab('durationIn') + grab('bubbleKey') + grab('bubbleOf') + grab('classify')
+     + grab('docNameIn') + grab('scrollPosOf') + grab('defer')
      + 'h = async ' + grab('harvest'));
 
 const addPhoto = () => {
@@ -49,7 +63,7 @@ const addPhoto = () => {
 
   // Scan pass 1: three photos visible.
   const urls = [addPhoto(), addPhoto(), addPhoto()];
-  await h(found, pending);
+  await sweep(found, pending);
   assert.strictEqual(found.size, 3, 'all three photos recorded');
   for (const u of urls) assert.ok(found.get(u).blob?.size, `bytes captured for ${u}`);
 
@@ -62,13 +76,13 @@ const addPhoto = () => {
   // record still exists so zipAndSave can count it as skipped.
   const dead = addPhoto();
   revoke(dead);
-  await h(found, pending);
+  await sweep(found, pending);
   assert.ok(found.has(dead), 'dead photo still recorded');
   assert.ok(!found.get(dead).blob, 'no bytes for a revoked URL');
 
   // Re-harvesting must not refetch what is already captured.
   const before = found.get(urls[0]).blob;
-  await h(found, pending);
+  await sweep(found, pending);
   assert.strictEqual(found.get(urls[0]).blob, before, 'no duplicate refetch');
 
   console.log('all 4 harvest checks pass');
