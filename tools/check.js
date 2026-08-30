@@ -22,8 +22,15 @@ for (const cs of manifest.content_scripts || []) {
     if (!fs.existsSync(rel(j))) fail(`manifest lists missing file: ${j}`);
   }
 }
-const popup = manifest.action?.default_popup;
-if (!popup || !fs.existsSync(rel(popup))) fail(`missing popup: ${popup}`);
+// side_panel, not action.default_popup: this extension opens a side panel, and
+// reading the popup key gave undefined — which crashed rel() below before any
+// of these checks could report anything.
+const panel = manifest.side_panel?.default_path || manifest.action?.default_popup;
+if (!panel || !fs.existsSync(rel(panel))) {
+  // Every check below reads this file, so there is nothing left to verify.
+  console.error(`FAILED\n  - missing panel/popup: ${panel}`);
+  process.exit(1);
+}
 
 // The MAIN-world bridge must load at document_start, before the page's own
 // service-worker-backed media requests begin.
@@ -89,11 +96,11 @@ if (pkg.name !== NAME.slug)
 if (pkg.description !== NAME.description)
   fail('package.json description does not match naming.js');
 
-const popupHtml = fs.readFileSync(rel(popup), 'utf8');
-const title = popupHtml.match(/<title>([^<]*)<\/title>/)?.[1];
-const h1 = popupHtml.match(/<h1>([^<]*)<\/h1>/)?.[1];
-if (title !== NAME.product) fail(`popup <title> is "${title}", expected "${NAME.product}"`);
-if (h1 !== NAME.short) fail(`popup <h1> is "${h1}", expected "${NAME.short}"`);
+const panelHtml = fs.readFileSync(rel(panel), 'utf8');
+const title = panelHtml.match(/<title>([^<]*)<\/title>/)?.[1];
+const h1 = panelHtml.match(/<h1>([^<]*)<\/h1>/)?.[1];
+if (title !== NAME.product) fail(`panel <title> is "${title}", expected "${NAME.product}"`);
+if (h1 !== NAME.short) fail(`panel <h1> is "${h1}", expected "${NAME.short}"`);
 
 const readmeHead = fs.readFileSync(rel('README.md'), 'utf8').split('\n')[0];
 if (readmeHead !== `# ${NAME.product}`)
@@ -125,15 +132,15 @@ for (const s of ['16', '48', '128']) {
   if (!manifest.icons?.[s]) fail(`icons is missing the ${s}px size Chrome asks for`);
 }
 
-// --- popup assets ---------------------------------------------------------
-const popupDir = path.dirname(rel(popup));
-const html = fs.readFileSync(rel(popup), 'utf8');
+// --- panel assets ---------------------------------------------------------
+const panelDir = path.dirname(rel(panel));
+const html = fs.readFileSync(rel(panel), 'utf8');
 for (const m of html.matchAll(/url\('([^']+)'\)/g)) {
-  if (!fs.existsSync(path.resolve(popupDir, m[1]))) fail(`popup asset missing: ${m[1]}`);
+  if (!fs.existsSync(path.resolve(panelDir, m[1]))) fail(`panel asset missing: ${m[1]}`);
 }
 for (const m of html.matchAll(/src="([^"]+)"/g)) {
   if (/^https?:/.test(m[1])) fail(`remote script blocked by MV3 CSP: ${m[1]}`);
-  else if (!fs.existsSync(path.resolve(popupDir, m[1]))) fail(`popup script missing: ${m[1]}`);
+  else if (!fs.existsSync(path.resolve(panelDir, m[1]))) fail(`panel script missing: ${m[1]}`);
 }
 // MV3's default CSP blocks remote stylesheets and fonts outright.
 if (/<link[^>]+href="https?:/.test(html)) fail('remote stylesheet blocked by MV3 CSP');

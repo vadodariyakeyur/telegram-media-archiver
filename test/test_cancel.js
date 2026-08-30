@@ -8,6 +8,22 @@
 const assert = require('assert');
 
 const ROOT = require('path').join(__dirname, '..');
+// True when `at` falls inside a `finally { ... }` body. Brace counting is
+// enough here: these files have no braces inside strings or regexes.
+function inFinally(src, at) {
+  const re = /\bfinally\s*{/g;
+  let m;
+  while ((m = re.exec(src)) && m.index < at) {
+    let depth = 1;
+    for (let i = m.index + m[0].length; i < src.length && depth > 0; i++) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}') depth--;
+      if (i === at) return depth > 0;
+    }
+  }
+  return false;
+}
+
 const read = p => require('fs').readFileSync(require('path').join(ROOT, p), 'utf8');
 
 const TG = { sleep: ms => new Promise(r => setTimeout(r, ms)) };
@@ -27,7 +43,9 @@ TG.chatKey = () => openChat;
                 'aborts with Cancelled, not a generic Error');
 
   // A run with no chat (the inert stand-in) has nothing to compare against.
-  assert.doesNotThrow(() => new TG.Run(null).check(),
+  // Through startRun, not the class: Run is deliberately unexported, and a
+  // test is not a reason to widen the module's surface.
+  assert.doesNotThrow(() => TG.startRun(null).check(),
                       'a run outside any chat never self-cancels');
 
   // --- the two signals stay distinguishable -------------------------------
@@ -74,8 +92,14 @@ TG.chatKey = () => openChat;
                    'src/content/70-collect.js', 'src/content/40-viewer.js']) {
     const s = read(f);
     assert.ok(CANCELLABLE.test(s), `${f} awaits a cancellable checkpoint`);
-    assert.ok(!/await TG\.sleep\(/.test(s),
-              `${f} must not await raw sleep(): it would not abort`);
+    // Raw sleep is allowed inside a finally and ONLY there: a throw from a
+    // finally replaces the pending break, unwinding a pass that had already
+    // stopped cleanly and discarding everything it fetched (see 70-collect.js).
+    for (const line of s.split('\n')) {
+      if (!/await TG\.sleep\(/.test(line)) continue;
+      assert.ok(inFinally(s, s.indexOf(line)),
+                `${f} awaits raw sleep() outside a finally: it would not abort`);
+    }
   }
 
   // The helpers those passes rely on must themselves abort, or the property

@@ -7,26 +7,36 @@ const assert = require('assert');
 const ROOT = require('path').join(__dirname, '..');
 const read = p => require('fs').readFileSync(require('path').join(ROOT, p), 'utf8');
 
-// Minimal rAF/perf shims: run the animation fast but in real steps.
+// Minimal clock shim: run the animation fast but in real steps.
+//
+// glideTo is timer-driven, not rAF-driven (a backgrounded tab stops painting
+// and froze the whole scan), so it is TG.sleep that must advance this clock.
+// A sleep that resolves without moving performance.now() leaves t at 0 and the
+// glide loops forever.
 let now = 0;
 global.performance = { now: () => now };
-global.requestAnimationFrame = cb => setTimeout(() => { now += 16; cb(now); }, 0);
 global.matchMedia = () => ({ matches: false });
+const fastSleep = ms => new Promise(r => setTimeout(() => { now += ms; r(); }, 0));
 
 const src = read('src/content/10-dom.js');
 const grab = n => { const i = src.indexOf(`function ${n}(`); return src.slice(i, src.indexOf('\n}\n', i) + 2); };
 // glideTo aborts mid-animation by asking the current run for a reason, so the
 // sandbox supplies a TG with one. Default is "nothing to cancel"; the abort
 // tests below swap in a run that does.
-const runWith = reason => ({ currentRun: () => ({ abortReason: () => reason }) });
+// sleep as well as currentRun: glideTo awaits TG.sleep between frames, so a TG
+// carrying only the abort hook makes the animation throw instead of run.
+const runWith = reason => ({
+  sleep: fastSleep,
+  currentRun: () => ({ abortReason: () => reason }),
+});
 const quietTG = runWith(null);
 
 // grab() slices from `function name(`, dropping any `async ` prefix, so
 // re-add it — the body awaits and would otherwise be a syntax error.
 const makeGlide = (mm = global.matchMedia, TG = quietTG) =>
-  new Function('performance', 'requestAnimationFrame', 'matchMedia', 'TG',
+  new Function('performance', 'matchMedia', 'TG',
     'return async ' + grab('glideTo')
-  )(global.performance, global.requestAnimationFrame, mm, TG);
+  )(global.performance, mm, TG);
 const glideTo = makeGlide();
 
 const mkScroller = (height = 10000, client = 500) => ({

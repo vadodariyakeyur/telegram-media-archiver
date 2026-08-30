@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # Structural checks the suites cannot cover: manifest validity, content
+  # module load order, icon pixel sizes, MV3-CSP-blocked remote assets. These
+  # only surface when Chrome loads the extension, so CI is the last place to
+  # catch them.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # No `cache: npm`: it hashes a lockfile, and this repo gitignores
+      # package-lock.json — the setup step fails outright without one.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # jsdom is the only dependency and only two suites use it. `npm ci` needs
+      # the same missing lockfile, so install rather than fail.
+      - run: npm install
+      - run: npm run check
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install
+      - run: npm test
+
+  # Gated on both, so a downloadable artifact always came from a green run.
+  # `npm run build` re-runs check.js itself — that guard is package.js's, not
+  # CI's, and it keeps a local build from zipping a broken extension.
+  build:
+    needs: [check, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension
+          path: dist/*.zip
+          if-no-files-found: error
