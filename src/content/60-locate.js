@@ -1,7 +1,6 @@
 // Re-finding a message whose DOM node was recycled.
-// Telegram virtualizes the list, so a node captured during the scan is
-// usually detached by download time. Cheap local search first; the full
-// sweep is time-boxed because it costs minutes on a long chat.
+// Telegram virtualizes the list, so a node captured during the scan is usually
+// detached by download time.
 
 async function refind(entry, scroller, opts = { deep: true }) {
   if (entry.bubble?.isConnected && TG.bubbleKey(entry.bubble) === entry.key) return entry.bubble;
@@ -13,7 +12,6 @@ async function refind(entry, scroller, opts = { deep: true }) {
       const el = document.querySelector(q);
       if (el) return el;
     }
-    // Fingerprint keys: scan rendered bubbles for a matching key.
     for (const b of document.querySelectorAll('.message, .Message, .bubble, [data-mid], [data-message-id]')) {
       if (TG.bubbleKey(b) === entry.key) return b;
     }
@@ -23,15 +21,13 @@ async function refind(entry, scroller, opts = { deep: true }) {
   let el = hit();
   if (el) return (entry.bubble = el);
 
-  // Nudge around the current position first. A recycled node is almost always
-  // a screen or two away, so this resolves the common case in about a second
-  // instead of sweeping the entire list.
+  // A recycled node is almost always a screen or two away, so this resolves the
+  // common case in about a second instead of sweeping the entire list.
   if (scroller) {
     const near = Math.max(200, scroller.clientHeight * 0.9);
     const from = scroller.scrollTop;
     for (const d of [near, -near, near * 2, -near * 2]) {
       await TG.glideTo(scroller, from + d, 200);
-      // The node may already be rendered; only wait if it is not.
       el = hit();
       if (!el) { await TG.run().waitFor(() => !!hit(), { budget: 350, floor: 100 }); el = hit(); }
       if (el) return (entry.bubble = el);
@@ -39,8 +35,8 @@ async function refind(entry, scroller, opts = { deep: true }) {
     await TG.glideTo(scroller, from, 180);
   }
 
-  // Full two-way sweep. This is expensive — on a long chat it can take
-  // minutes — so it must stay a genuine last resort, never a per-item step.
+  // Full two-way sweep. EXPENSIVE — minutes on a long chat — so it must stay a
+  // genuine last resort, never a per-item step.
   if (opts.deep && scroller) {
     // Scale the stride to the list: creeping 0.7 screens at a time across a
     // 300000px list is what made this take minutes.
@@ -54,11 +50,9 @@ async function refind(entry, scroller, opts = { deep: true }) {
       await TG.run().pause(400);
 
       let stuck = 0;
-      // Cap by the list's own length rather than a flat guess, so long chats
-      // get the passes they need and short ones exit immediately.
       const cap = Math.ceil(scroller.scrollHeight / step) + 10;
-      // ...but bound the wall clock too: on a very long chat the step cap
-      // alone is minutes per lookup, which reads as a hang.
+      // Bound the wall clock too: on a very long chat the step cap alone is
+      // minutes per lookup, which reads as a hang.
       const until = Date.now() + (opts.budgetMs ?? 20000) / 2;   // per direction
 
       for (let i = 0; i < cap && stuck < 3 && Date.now() < until; i++) {
@@ -69,7 +63,6 @@ async function refind(entry, scroller, opts = { deep: true }) {
         scroller.scrollTop = dir === 'up'
           ? Math.max(0, before - step)
           : Math.min(scroller.scrollHeight, before + step);
-        // Stop waiting the moment the target appears.
         await TG.run().waitFor(() => !!hit(), { budget: 350, floor: 120 });
 
         // Telegram loads older messages lazily, so a stalled scroll may just

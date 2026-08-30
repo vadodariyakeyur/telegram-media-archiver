@@ -1,5 +1,3 @@
-// Popup entry point: boots state, wires the buttons, subscribes to the
-// content script. Loaded as a module from popup.html.
 import { els } from './ui/dom.js';
 import { log, setState, resetLog } from './ui/log.js';
 import { activeTab } from './ui/tabs.js';
@@ -10,8 +8,6 @@ import { applyTheme } from './ui/theme.js';
 (async () => {
   const tab = await activeTab();
   if (!tab) {
-    // No Telegram tab: keep the shipped palette rather than a stale borrowed
-    // one, then report why nothing can be scanned.
     applyTheme(null);
     setState('No chat', 'fail');
     log('Open web.telegram.org and select a chat', 'err');
@@ -19,9 +15,9 @@ import { applyTheme } from './ui/theme.js';
     return;
   }
 
-  // Borrow the open client's theme before anything renders, so the panel
-  // never flashes its default palette first. A failure here is not fatal —
-  // applyTheme(null) simply leaves the shipped colours in place.
+  // Borrow the client's theme before anything renders, so the panel never
+  // flashes its default palette first. A failure is not fatal — applyTheme(null)
+  // leaves the shipped colours in place.
   try {
     const res = await chrome.tabs.sendMessage(tab.id, { type: 'GET_THEME' });
     applyTheme(res?.theme || null);
@@ -50,7 +46,7 @@ async function send(payload, busyText, busyState) {
 
 els.scan.onclick = () => {
   renderTypes(null);
-  resetLog();                        // a fresh scan starts a fresh log
+  resetLog();
   send({ type: 'SCAN' }, 'Scanning chat', 'Scanning');
 };
 
@@ -62,13 +58,13 @@ els.go.onclick = () => {
 
 els.more.onclick = () => {
   // Continue keeps the existing manifest and log: this is one scan resuming,
-  // not a new one. The content script carries the collected media forward.
+  // not a new one.
   els.more.hidden = true;
   send({ type: 'CONTINUE' }, 'Continuing scan', 'Scanning');
 };
 
 els.stop.onclick = async () => {
-  // Deliberately not send(): that helper rewrites the run state, which would
+  // Deliberately NOT send(): that helper rewrites the run state, which would
   // clobber the live progress line the user is watching. A stop only asks —
   // the run reports its own end via STOPPED.
   els.stop.disabled = true;

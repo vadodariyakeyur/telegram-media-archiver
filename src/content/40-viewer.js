@@ -1,6 +1,6 @@
 // Driving Telegram's media viewer.
-// Viewer markup is far more stable than the message list's, so the real
-// stream URL is read from the opened viewer rather than from the bubble.
+// Viewer markup is far more stable than the message list's, so the real stream
+// URL is read from the opened viewer rather than from the bubble.
 
 const VIEWER_VIDEO = [
   '.media-viewer-whole .media-viewer-movers .media-viewer-aspecter video',  // /k/
@@ -21,7 +21,6 @@ function closeViewer() {
   document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, keyCode: 27 }));
 }
 
-// Open one video message and return the streaming URL the viewer exposes.
 async function openForSrc(bubble, timeoutMs = 20000) {
   const target = bubble.querySelector('video, img, .thumbnail, .media-photo') || bubble;
   target.click();
@@ -31,7 +30,7 @@ async function openForSrc(bubble, timeoutMs = 20000) {
     await TG.run().pause(300);
     const v = document.querySelector(VIEWER_VIDEO);
     const src = v && (v.currentSrc || v.src);
-    // Ignore a blob: src — that is the buffer, not a fetchable endpoint.
+    // A blob: src is the buffer, not a fetchable endpoint.
     if (src && !src.startsWith('blob:')) return src;
     // Some builds only expose the real URL on a <source> child.
     const ssrc = v?.querySelector('source')?.src;
@@ -39,9 +38,6 @@ async function openForSrc(bubble, timeoutMs = 20000) {
   }
   return null;
 }
-
-// Scroll the whole chat and inventory what is there. No fetching, no clicking:
-// this is the cheap pass that fills the type list in the popup.
 
 // --- exports ---
 TG.VIEWER_VIDEO = VIEWER_VIDEO;

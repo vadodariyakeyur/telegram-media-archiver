@@ -1,15 +1,12 @@
 // Reading Telegram's live theme off the page.
 //
-// Hardcoding a palette is wrong for anyone running a custom accent or theme,
-// so the popup borrows the colors from the client itself. Telegram exposes
-// its theme as CSS custom properties on :root; the names differ between the
-// /k/ and /a/ clients and have changed across builds, so this tries known
-// names first and then falls back to *discovering* whatever colour-valued
-// properties the page defines. Anything it cannot resolve is simply omitted,
-// and the popup keeps its shipped default for that token.
+// Hardcoding a palette breaks anyone running a custom accent, so the panel
+// borrows the client's own colours. Property names differ between the /k/ and
+// /a/ clients and change across builds, so known names are tried first and a
+// discovery pass follows. Unresolved tokens are omitted, and the panel keeps
+// its shipped default for those — a partial read degrades, never breaks.
 
-// Candidate property names per token, most specific first. Order matters:
-// the first one that resolves to a colour wins.
+// Most specific first: the first name resolving to a colour wins.
 const THEME_KEYS = {
   vault: ['--background-color', '--color-background', '--theme-background-color',
           '--body-background-color'],
@@ -35,22 +32,19 @@ const DISCOVER = {
   ok:    [/success/, /green/, /online/],
 };
 
-// Does a string look like a usable colour? Rejects `none`, gradients, and
-// anything transparent enough to be unreadable behind text.
 function isColor(v) {
   if (!v) return false;
   const s = v.trim().toLowerCase();
   if (!s || s === 'none' || s === 'transparent' || s === 'inherit') return false;
   if (s.includes('gradient') || s.includes('url(')) return false;
   if (!/^(#|rgba?\(|hsla?\()/.test(s)) return false;
-  // Reject near-transparent values: they would render as unstyled.
+  // Near-transparent values would render as unstyled.
   const alpha = /^rgba?\([^)]*?,\s*([\d.]+)\s*\)$/.exec(s)
              || /^hsla?\([^)]*?,\s*([\d.]+)\s*\)$/.exec(s);
   if (alpha && parseFloat(alpha[1]) < 0.5) return false;
   return true;
 }
 
-// Every custom property the page defines on :root, as a name -> value map.
 // Same-origin stylesheets only; a cross-origin sheet throws on .cssRules and
 // is skipped rather than aborting the read.
 function rootCustomProps() {
@@ -67,15 +61,11 @@ function rootCustomProps() {
   return names;
 }
 
-// Read Telegram's theme, normalised to this extension's token names.
-// Returns only the tokens it could resolve; callers keep their defaults for
-// the rest, so a partial read degrades instead of breaking the palette.
 function readTheme() {
   const cs = getComputedStyle(document.documentElement);
   const get = n => cs.getPropertyValue(n);
   const out = {};
 
-  // Pass 1: the names we know.
   for (const [token, candidates] of Object.entries(THEME_KEYS)) {
     for (const name of candidates) {
       const v = get(name);
@@ -83,7 +73,7 @@ function readTheme() {
     }
   }
 
-  // Pass 2: discover by name shape, for builds that renamed things.
+  // Discover by name shape, for builds that renamed things.
   const missing = Object.keys(THEME_KEYS).filter(t => !out[t]);
   if (missing.length) {
     const all = [...rootCustomProps()];
@@ -94,20 +84,17 @@ function readTheme() {
     }
   }
 
-  // A theme with no background and no accent is not a theme; report nothing
-  // so the popup keeps its own palette rather than a half-applied mix.
+  // No background and no accent is not a theme; report nothing so the panel
+  // keeps its own palette rather than a half-applied mix.
   if (!out.vault && !out.signal) return null;
 
-  // Derive the hover shade from the accent rather than guessing a second one.
   if (out.signal) out.hover = lighten(out.signal, 0.12);
-  // Text on an accent fill: pick whichever of white/black reads better.
   if (out.signal) out.onblue = bestOn(out.signal);
 
   out.dark = isDark(out.vault || '#000');
   return out;
 }
 
-// --- small colour helpers -------------------------------------------------
 // Parse to [r,g,b] 0-255, or null. Handles #rgb, #rrggbb, rgb(), rgba().
 function toRgb(c) {
   const s = (c || '').trim();
@@ -133,7 +120,6 @@ function isDark(c) {
   return rgb ? relLum(rgb) < 0.35 : true;
 }
 
-// Contrast ratio between two colours, for picking readable foregrounds.
 function contrast(a, b) {
   const ra = toRgb(a), rb = toRgb(b);
   if (!ra || !rb) return 1;
@@ -141,13 +127,10 @@ function contrast(a, b) {
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
-// Text colour for an accent fill.
-//
 // Deliberately NOT "whichever has more contrast". On a mid-tone accent black
 // often wins on ratio (black on #8675DC is 5.59:1 vs white's 3.76:1) yet looks
-// wrong — Telegram, and every other client, puts white on its accent. So white
-// is preferred and black used only when white is genuinely unreadable, which
-// is what actually happens on pale accents (yellow, mint, light pink).
+// wrong — every client puts white on its accent. So white is preferred and
+// black used only when white is genuinely unreadable (pale accents).
 function bestOn(bg) {
   const white = contrast('#FFFFFF', bg);
   if (white >= 3) return '#FFFFFF';
@@ -161,7 +144,34 @@ function lighten(c, amount) {
   return `rgb(${up.join(', ')})`;
 }
 
+// The panel stays open across a theme switch (a popup did not), so a one-shot
+// read at open is not enough.
+//
+// Serialised compare rather than a dirty flag: a class change does not always
+// mean the colours moved, and re-pushing an identical palette would repaint
+// the panel on every unrelated attribute write.
+function watchTheme(onChange) {
+  let last = JSON.stringify(readTheme());
+  const check = () => {
+    let now;
+    try { now = readTheme(); } catch { return; }
+    const s = JSON.stringify(now);
+    if (s === last) return;
+    last = s;
+    onChange(now);
+  };
+  const obs = new MutationObserver(check);
+
+  // Day/night: the client toggles a class on <html>.
+  obs.observe(document.documentElement, {
+    attributes: true, attributeFilter: ['class', 'style'],
+  });
+
+  // Custom accent: no attribute moves — the client rewrites its injected
+  // stylesheet instead, so watch <head> for sheets being swapped or edited.
+  obs.observe(document.head, { childList: true, subtree: true, characterData: true });
+}
+
 // --- exports ---
 TG.readTheme = readTheme;
-TG.themeContrast = contrast;
-TG.themeIsDark = isDark;
+TG.watchTheme = watchTheme;

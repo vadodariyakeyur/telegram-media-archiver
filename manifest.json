@@ -10,13 +10,13 @@
     "128": "assets/icons/icon-128.png"
   },
   "permissions": [
-    "activeTab"
+    "activeTab",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://web.telegram.org/*"
   ],
   "action": {
-    "default_popup": "src/popup/popup.html",
     "default_icon": {
       "16": "assets/icons/icon-16.png",
       "32": "assets/icons/icon-32.png",
@@ -58,5 +58,11 @@
       ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "side_panel": {
+    "default_path": "src/popup/popup.html"
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  }
 }

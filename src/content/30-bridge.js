@@ -1,6 +1,9 @@
 // Client half of the cross-world fetch bridge.
-// Video bytes must be fetched from the PAGE's context (see src/page/), so
-// requests are posted across the world boundary and awaited here.
+//
+// A <video>'s blob: URL is only the streaming buffer, not the file. The real
+// bytes live behind Telegram's /stream/ URLs, which its service worker serves —
+// and a content script's fetch() BYPASSES that service worker and gets an
+// unfollowable 302. So the fetch is delegated to the page's own context.
 
 const TAG = 'tg-dl';
 let msgSeq = 0;
@@ -19,11 +22,9 @@ function fetchViaPage(url, onProgress, timeoutMs = 180000) {
 
     timer = setTimeout(() => { settle(); reject(new Error('timed out')); }, timeoutMs);
 
-    // A video can take minutes, and the fetch resolves only on done/error —
-    // so without this the run would keep downloading a chat the user has
-    // already left. Poll the chat identity alongside the transfer.
+    // A video can take minutes and the fetch resolves only on done/error — so
+    // without this the run keeps downloading a chat the user already left.
     watch = setInterval(() => {
-      // A poll cannot await, so read the reason synchronously.
       const reason = TG.currentRun?.()?.abortReason();
       if (!reason) return;
       settle();
@@ -49,9 +50,6 @@ function fetchViaPage(url, onProgress, timeoutMs = 180000) {
     window.postMessage({ [TAG]: 'fetch', id, url }, '*');
   });
 }
-
-// The message list markup is unstable, but the media viewer is not. Open a
-// bubble, read the src off the viewer's <video>, then close it.
 
 // --- exports ---
 TG.fetchViaPage = fetchViaPage;

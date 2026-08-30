@@ -8,13 +8,10 @@ function extFor(kind, mime) {
   return { video: 'mp4', gif: 'mp4', voice: 'ogg', file: 'bin' }[kind] || 'jpg';
 }
 
-// Pack the selected media into an archive.
-//
-// Deliberately returns a Blob rather than saving it: naming, numbering,
-// per-kind foldering and the skip-and-count rules are all decided here, and
-// those are the numbers the user reads at the end of a run ("129 photo, 23
-// video, 53 skipped"). Fusing them with browser IO made them unreachable from
-// a test, and they were wrong twice before anyone noticed.
+// Returns a Blob rather than saving it: naming, numbering, foldering and the
+// skip-and-count rules are the numbers the user reads at the end of a run.
+// Fusing them with browser IO made them unreachable from a test, and they were
+// wrong twice before anyone noticed.
 async function buildArchive(items, report) {
   const zip = new JSZip();
   const counts = {};
@@ -25,8 +22,8 @@ async function buildArchive(items, report) {
     report({ phase: 'downloading', done: i, total: items.length });
     try {
       const kind = items[i].kind;
-      // Videos arrive pre-fetched (assembled from Range chunks while the
-      // viewer was open); everything else is a live blob: URL in the page.
+      // Videos arrive pre-fetched (assembled from Range chunks while the viewer
+      // was open); everything else is a live blob: URL in the page.
       let blob = items[i].blob;
       if (!blob) {
         const res = await fetch(items[i].url);
@@ -53,8 +50,6 @@ async function buildArchive(items, report) {
   return { blob, counts, total, failed };
 }
 
-// Hand a blob to the browser as a download. The only part that needs a
-// browser, and small enough that there is nothing in it to get wrong.
 function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -66,8 +61,6 @@ function saveBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
-// Pack and save. Kept so callers have one verb for the whole job; the seam
-// between deciding and saving is where the tests get in.
 async function zipAndSave(items, report) {
   const { blob, counts, total, failed } = await buildArchive(items, report);
   saveBlob(blob, `${TG.chatName()}-media.zip`);
@@ -75,7 +68,5 @@ async function zipAndSave(items, report) {
 }
 
 // --- exports ---
-TG.extFor = extFor;
 TG.buildArchive = buildArchive;
-TG.saveBlob = saveBlob;
 TG.zipAndSave = zipAndSave;

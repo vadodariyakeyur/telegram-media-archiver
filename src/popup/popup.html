@@ -2,9 +2,8 @@
 <meta charset="utf-8">
 <title>Telegram Media Archiver</title>
 <style>
-  /* Fonts are vendored locally: MV3's default CSP blocks remote stylesheets,
-     so a Google Fonts <link> would silently no-op and fall back to system
-     faces. Both families are SIL OFL, which permits bundling. */
+  /* Vendored locally: MV3's default CSP blocks remote stylesheets, so a Google
+     Fonts <link> silently no-ops and falls back to system faces. */
   @font-face {
     font-family: 'Space Grotesk'; font-style: normal; font-weight: 600;
     font-display: swap; src: url('../../assets/fonts/space-grotesk-600.woff2') format('woff2');
@@ -18,15 +17,8 @@
     font-display: swap; src: url('../../assets/fonts/jetbrains-mono-500.woff2') format('woff2');
   }
 
-  /* Archival transfer log: this popup records a long, invisible process,
-     so it is built as a ledger that writes a line for everything it moves. */
-  /* Telegram's palette, read from this user's actual client: a dark theme
-     with a violet accent, not the default blue. Only the values change here —
-     every rule below reads these tokens, so layout, spacing and behaviour are
-     untouched.
-
-     The ground is near-black (its app background) rather than the blue-grey
-     of Telegram's stock night theme. */
+  /* Fallback palette only — theme.js overwrites these tokens with the live
+     client's colours. Every rule below reads the tokens, never a literal. */
   :root {
     --vault:  #0E0E0E;   /* app background */
     --rule:   #2B2B2C;   /* dividers, inactive controls */
@@ -43,33 +35,32 @@
     --sys: system-ui, -apple-system, sans-serif;
   }
 
-  /* Telegram Web is dark by default; a light popup beside it reads as a
-     different application. Light mode is supported but not the primary. */
-  /* Only applies when no live theme was borrowed from Telegram: an applied
-     theme sets data-themed on :root, and its inline values must not be
-     overridden by the OS preference (a dark Telegram under a light OS). */
+  /* Only when no live theme was borrowed: an applied theme sets data-themed on
+     :root, and its inline values must not lose to the OS preference (a dark
+     Telegram under a light OS). */
   @media (prefers-color-scheme: light) {
     :root:not([data-themed]) {
       --vault: #FFFFFF;
       --rule:  #DFE1E5;
       --ink:   #000000;
       --dim:   #707579;
-      /* The accent holds across both themes, as it does in Telegram. */
     }
   }
 
 
   * { box-sizing: border-box; }
 
+  /* The side panel host sizes the frame and the user can drag it wider, so
+     never fix a width. */
+  html, body { height: 100%; }
   body {
-    width: 320px; margin: 0;
-    min-height: 420px; display: flex; flex-direction: column;
+    margin: 0;
+    display: flex; flex-direction: column;
     background: var(--vault); color: var(--ink);
     font: 13px/1.5 var(--sys);
     -webkit-font-smoothing: antialiased;
   }
 
-  /* ---- masthead ---------------------------------------------------- */
   header {
     padding: 14px 16px 12px;
     border-bottom: 1px solid var(--rule);
@@ -86,7 +77,6 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
-  /* Accent dot: lit only while work is running. The one live accent. */
   .lamp {
     display: inline-block; width: 6px; height: 6px; border-radius: 50%;
     background: var(--rule); margin-right: 6px; vertical-align: 1px;
@@ -96,9 +86,8 @@
   body.fail .lamp { background: var(--err); }
   @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
 
-  main { padding: 14px 16px 16px; flex: 1; }
+  main { padding: 14px 16px 16px; flex: 1; overflow-y: auto; }
 
-  /* ---- buttons ----------------------------------------------------- */
   button {
     width: 100%; padding: 9px 12px;
     font: 500 12.5px/1 var(--disp);
@@ -109,10 +98,9 @@
     transition: border-color .15s, color .15s, background .15s, opacity .15s;
   }
   button:hover:not(:disabled) { border-color: var(--dim); }
-  /* The accent marks the one action worth taking now, never the whole
-     toolbar. White on Telegram's #3390EC is 3.31:1 — what Telegram itself
-     ships, but under the 4.5:1 body-text threshold. The blue is kept
-     authentic and the label bumped to 600 for legibility instead. */
+  /* White on Telegram's #3390EC is 3.31:1 — what Telegram itself ships, but
+     under the 4.5:1 body-text threshold. The accent is kept authentic and the
+     label bumped to 600 for legibility instead. */
   #go:not(:disabled) {
     border-color: var(--signal); background: var(--signal); color: var(--onblue);
     font-weight: 600;
@@ -121,21 +109,15 @@
   button:disabled { opacity: .38; cursor: default; }
   button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
   #go { margin-top: 10px; }
-  /* Stop is a quiet control: it interrupts, it does not invite. The accent stays
-     reserved for the action that produces the archive. */
   #stop { border-color: var(--rule); color: var(--dim); }
   #stop:hover:not(:disabled) { border-color: var(--err); color: var(--err); }
-  /* Continue resumes a stopped scan; it sits under Scan rather than replacing
-     it, so both "start over" and "carry on" stay reachable. */
   #more { margin-top: 8px; }
 
-  /* A partial manifest is a floor, not a total: say so on the rule itself. */
   .bar.partial::after {
     content: 'partial';
     color: var(--err); letter-spacing: 0.1em;
   }
 
-  /* ---- manifest: the type list IS the ledger ----------------------- */
   #types { margin: 14px 0 0; }
   #types.empty { display: none; }
 
@@ -164,7 +146,7 @@
     flex: 1; cursor: pointer;
     font: 400 12.5px/1 var(--sys);
   }
-  /* Counts are tallies: mono + tabular so the column never twitches. */
+  /* tabular-nums so the count column never twitches as digits change. */
   .row .n {
     font: 500 12px/1 var(--mono);
     color: var(--dim);
@@ -189,21 +171,19 @@
   }
   input[type=checkbox]:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 
-  /* ---- signature: the transfer log -------------------------------- */
-  /* No progress bar. This process cannot know its total, so a bar would
-     draw a lie; the log states only what has actually happened. */
+  /* No progress bar: the scan cannot know its total, so a bar would draw a
+     lie. The log states only what has actually happened. */
   #status {
     margin-top: 14px;
     border-top: 1px solid var(--rule);
     padding-top: 10px;
-    max-height: 132px; overflow-y: auto;
+    max-height: 40vh; overflow-y: auto;
     font: 400 11px/1.65 var(--mono);
     color: var(--dim);
     scrollbar-width: thin; scrollbar-color: var(--rule) transparent;
   }
   #status:empty { display: none; }
 
-  /* Idle placeholder: replaced by the manifest as soon as a scan completes. */
   #hint {
     margin-top: 16px; padding-top: 14px;
     border-top: 1px solid var(--rule);
@@ -223,7 +203,6 @@
   #status .line.live .m { color: var(--signal); }
   #status .line.ok   .m { color: var(--ok); }
   #status .line.err  .m { color: var(--err); }
-  /* Indented detail lines hang under their summary rather than competing. */
   #status .line.detail .m { color: var(--dim); padding-left: 10px;
                             border-left: 1px solid var(--rule); }
   #status .m { word-break: break-word; }

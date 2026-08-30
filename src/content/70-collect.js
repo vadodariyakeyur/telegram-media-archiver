@@ -1,43 +1,36 @@
 // Download pass: open each selected video and pull its bytes.
-// Videos are visited in list order, not scan order, so the list position and
-// the next target stay close together.
 
 async function loadPending(found, pending, kinds, report) {
   const failures = [];
   const scroller = TG.findScroller();
 
-  // Visit videos in list order (top of the chat downward) rather than in scan
-  // order. The scan walks bottom-to-top, so processing in that order left the
-  // list position and the next target drifting apart — after a dozen videos
-  // every lookup needed a full search, which burned the budget and then
-  // failed fast on everything remaining.
+  // List order (top downward), NOT scan order. The scan walks bottom-to-top, so
+  // processing in that order left the list position and the next target
+  // drifting apart — after a dozen videos every lookup needed a full search.
   const wanted = pending
     .filter(p => kinds.includes(p.kind))
     .sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
 
-  // A deep sweep can take minutes on a long chat. Allow a handful of them so
-  // genuinely-lost messages are still recovered, but never let the run degrade
-  // into hours of scrolling on a chat with hundreds of videos.
+  // A deep sweep can take minutes. Allow a handful so genuinely-lost messages
+  // are still recovered, but never let the run degrade into hours of scrolling.
   // ponytail: flat budget, not adaptive. Raise if recovery matters more than time.
   let deepBudget = Math.max(5, Math.ceil(wanted.length * 0.05));
 
   for (let i = 0; i < wanted.length; i++) {
     const entry = wanted[i];
     const kind = entry.kind;
-    // The captured node may have been recycled; get a live one for this key.
-    // Cheap local search first — the deep sweep costs minutes on a long chat,
-    // so it is only worth paying for a message the local pass could not find.
     // Park the list where this message sat during the scan, so it is already
     // rendered by the time we look for it.
     if (scroller && entry.at != null) {
       const want = Math.max(0, entry.at - scroller.clientHeight / 2);
       if (Math.abs(scroller.scrollTop - want) > scroller.clientHeight / 2) {
         await TG.glideTo(scroller, want, 240);
-        // Proceed as soon as the target renders instead of a fixed wait.
         await TG.run().waitFor(() => entry.bubble?.isConnected, { budget: 500, floor: 140 });
       }
     }
 
+    // Cheap local search first — the deep sweep costs minutes, so it is only
+    // worth paying for a message the local pass could not find.
     let bubble = await TG.refind(entry, scroller, { deep: false });
     if (!bubble && deepBudget > 0) {
       deepBudget--;
@@ -83,9 +76,6 @@ async function loadPending(found, pending, kinds, report) {
   }
   return failures;
 }
-
-
-// Pick a file extension from the blob's MIME type, falling back per media kind.
 
 // --- exports ---
 TG.loadPending = loadPending;

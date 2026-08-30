@@ -1,26 +1,24 @@
 // Translating content-script messages into log lines and run state.
-// This is the only module that knows the message contract's shape.
+// The only module that knows the message contract's shape.
 import { els } from './dom.js';
 import { log, setState, resetLog } from './log.js';
 import { renderTypes, syncGo, markPartial, updateCounts } from './manifest.js';
+import { applyTheme } from './theme.js';
 
-// Swap Scan for Stop. Every state change routes through here so the two
-// buttons can never both be visible, or both hidden.
-export function setBusy(busy) {
+// Every state change routes through here so the two buttons can never both be
+// visible, or both hidden.
+function setBusy(busy) {
   els.scan.hidden = busy;
   els.stop.hidden = !busy;
   els.stop.disabled = false;
   els.stop.textContent = 'Stop and keep what was found';
   els.scan.disabled = false;
-  // Continue only belongs to the idle state, and only when the last pass
-  // actually left something to resume — set by showResumable().
   if (busy) els.more.hidden = true;
 }
 
-// Offer Continue when a stopped scan can still be resumed. Kept separate from
-// setBusy so a finished or exhausted scan never shows a button that would
-// immediately report "already at the top".
-export function showResumable(yes) {
+// Kept separate from setBusy so a finished or exhausted scan never shows a
+// button that would immediately report "already at the top".
+function showResumable(yes) {
   els.more.hidden = !yes;
   els.more.disabled = false;
   els.more.textContent = 'Continue scanning';
@@ -29,37 +27,31 @@ export function showResumable(yes) {
 export function render(msg) {
   if (!msg) return;
 
-  // The open chat changed, so anything on screen describes a different chat.
-  // Clear it rather than leaving a manifest the buttons no longer act on.
   if (msg.type === 'RESET') {
     renderTypes(null);
     resetLog();
     setState('Idle');
     setBusy(false);
     showResumable(false);
-    // A run that was cancelled mid-flight needs saying: the user watched a
-    // scan running and would otherwise just see it vanish.
     if (msg.reason === 'chat-changed') log('Chat changed — run stopped', 'err');
     return;
   }
 
+  // A theme switch touches only the palette. It MUST return before the run
+  // state below, which would otherwise read a theme push as "not running" and
+  // swap a live scan's Stop button back to Scan.
+  if (msg.type === 'THEME') { applyTheme(msg.theme); return; }
+
   const busy = msg.type === 'PROGRESS';
-  // Stop takes Scan's place while a run is in flight, so the panel does not
-  // reflow and there is always a live control rather than a dead button.
   setBusy(busy);
   if (busy) els.go.disabled = true; else syncGo();
 
   if (msg.type === 'PROGRESS') {
-    // Repeating progress replaces its own previous line; phase changes and
-    // outcomes stack, so the log stays a readable record of the whole run.
     if (msg.phase === 'scanning') {
       setState('Scanning', 'busy');
       log(`Scanning chat — ${msg.count} items`, 'live', { transient: true });
-      // Keep the manifest live while the scan runs: the counts are already
-      // known each round, and a list that only appears at the end made a
-      // continued scan look like it had stalled.
-      // Rows arrive already labelled from the content script, which owns the
-      // type names — the popup keeps no second copy to drift from.
+      // Keep the manifest live while the scan runs: a list that only appears at
+      // the end made a continued scan look like it had stalled.
       if (msg.types) {
         updateCounts(msg.types);
         markPartial(true);   // still climbing; these are a floor
@@ -116,8 +108,6 @@ export function render(msg) {
     setState('Stopped');
     log('Stopped — keeping what was found', 'ok');
     syncGo();
-    // A scan reports its own resumability via SCANNED; this path covers a
-    // stopped download, which has nothing to resume.
 
   } else if (msg.type === 'ERROR') {
     setBusy(false);
@@ -125,6 +115,3 @@ export function render(msg) {
     log(msg.message, 'err');
   }
 }
-
-// The popup is destroyed whenever it loses focus, so pull current state back
-// from the content script each time it opens.

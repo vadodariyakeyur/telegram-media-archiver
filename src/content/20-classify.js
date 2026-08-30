@@ -10,10 +10,9 @@ const TYPES = {
   file:    'Documents',
 };
 
-// A stable per-message key. Telegram recycles DOM nodes while scrolling, so
-// object identity is worthless for dedupe: a reused node looks like a message
-// already seen, and later videos get silently dropped. Fall back to the
-// message text/time only when no id attribute is present.
+// Telegram recycles DOM nodes while scrolling, so object identity is worthless
+// for dedupe: a reused node looks like a message already seen, and later videos
+// get silently dropped.
 function bubbleKey(bubble) {
   const id = bubble.getAttribute?.('data-mid')
           || bubble.getAttribute?.('data-message-id')
@@ -28,13 +27,11 @@ function bubbleKey(bubble) {
 }
 
 function bubbleOf(el) {
-  // Telegram's bubble class names differ across builds and clients, so fall
-  // back to any ancestor carrying a message id attribute.
   return el.closest('.message, .Message, .bubble, [data-mid], [data-message-id], [id^="message"]');
 }
 
-// A duration badge ("0:42") is the most reliable video/voice marker: it is
-// rendered text, not a class name, so it survives Telegram's markup churn.
+// A duration badge ("0:42") is the most reliable video/voice marker: rendered
+// text, not a class name, so it survives Telegram's markup churn.
 function durationIn(bubble) {
   for (const el of bubble.querySelectorAll('span, div, time')) {
     if (el.children.length) continue;                 // leaf nodes only
@@ -44,8 +41,6 @@ function durationIn(bubble) {
   return null;
 }
 
-// Classify a message bubble. Structural signals (real elements, rendered text)
-// are trusted over class names, which vary between builds.
 function classify(bubble, img) {
   const has = sel => !!bubble.querySelector(sel);
   const cls = (bubble.className || '') + ' ' +
@@ -63,22 +58,18 @@ function classify(bubble, img) {
   // Stickers are images but never carry a duration.
   if (mentions('sticker')) return 'sticker';
 
-  // Anything with a duration badge and a thumbnail is timed media: a video.
-  // (Voice already returned above, so a badge here means video/round note.)
+  // Voice already returned above, so a duration badge here means video.
   if (img && durationIn(bubble)) return 'video';
 
-  // Explicit video markers, kept narrow to avoid matching generic wrappers.
+  // Kept narrow to avoid matching generic wrappers.
   if (has('video') || mentions('\\bvideo\\b|media-video|video-time|is-round|gif|animation'))
     return 'video';
 
   return img ? 'photo' : null;
 }
 
-// Walk the rendered DOM and record what is there.
-// `found` holds directly-fetchable blobs; `pending` holds video/gif bubbles
-// that must be clicked open before a blob exists.
-// Roughly where a bubble sits in the scroll container, so the download pass
-// can visit videos in list order instead of hunting each one independently.
+// Roughly where a bubble sits in the scroll container, so the download pass can
+// visit videos in list order instead of hunting each one independently.
 function scrollPosOf(bubble) {
   const sc = TG.findScroller();
   if (!sc) return 0;
@@ -88,8 +79,11 @@ function scrollPosOf(bubble) {
   return (sc.scrollTop || 0) + (b.top - s.top);
 }
 
-async function harvest(found, pending) {
-  const grabs = [];   // still-image fetches started this pass
+// Sweeps rendered messages into `found`/`pending` and STARTS still-image
+// fetches without awaiting them: slots are claimed synchronously, so the caller
+// reports accurate counts immediately and settles the bytes afterwards.
+function harvest(found, pending) {
+  const grabs = [];
   document.querySelectorAll('img').forEach(img => {
     const src = img.currentSrc || img.src;
     if (!src || !/^(blob:|data:image)/.test(src)) return;
@@ -123,7 +117,6 @@ async function harvest(found, pending) {
     }
   });
 
-  // Anything already loaded as a real media element.
   document.querySelectorAll('video, audio').forEach(v => {
     const src = v.currentSrc || v.src || v.querySelector('source')?.src;
     if (!src || !/^blob:/.test(src)) return;
@@ -132,21 +125,12 @@ async function harvest(found, pending) {
     if (!found.has(src)) found.set(src, { url: src, kind });
   });
 
-  // Let this pass's fetches settle before the next scroll revokes them.
-  await Promise.all(grabs);
+  // The caller MUST settle these before the next scroll revokes the blob URLs,
+  // but only after it has reported progress.
+  return grabs;
 }
-
-// A <video>'s blob: URL is only the streaming buffer, not the file. The real
-// bytes live behind Telegram's /stream/ URLs, which its service worker serves —
-// and a content script's fetch() bypasses that service worker and gets an
-// unfollowable 302. So the fetch is delegated to page_fetch.js, which runs in
-// the page's own context. See that file for the full explanation.
 
 // --- exports ---
 TG.TYPES = TYPES;
 TG.bubbleKey = bubbleKey;
-TG.bubbleOf = bubbleOf;
-TG.durationIn = durationIn;
-TG.classify = classify;
-TG.scrollPosOf = scrollPosOf;
 TG.harvest = harvest;
