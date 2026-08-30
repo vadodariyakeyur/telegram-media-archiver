@@ -1,0 +1,14 @@
+{
+  "name": "telegram-media-archiver",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Archives photos, videos and other media from the Telegram Web chat you have open.",
+  "scripts": {
+    "test": "node test/run.js",
+    "check": "node tools/check.js",
+    "build": "node tools/package.js"
+  },
+  "devDependencies": {
+    "jsdom": "^22.1.0"
+  }
+}

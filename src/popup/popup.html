@@ -1,0 +1,269 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Telegram Media Archiver</title>
+<style>
+  /* Fonts are vendored locally: MV3's default CSP blocks remote stylesheets,
+     so a Google Fonts <link> would silently no-op and fall back to system
+     faces. Both families are SIL OFL, which permits bundling. */
+  @font-face {
+    font-family: 'Space Grotesk'; font-style: normal; font-weight: 600;
+    font-display: swap; src: url('../../assets/fonts/space-grotesk-600.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400;
+    font-display: swap; src: url('../../assets/fonts/jetbrains-mono-400.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'JetBrains Mono'; font-style: normal; font-weight: 500;
+    font-display: swap; src: url('../../assets/fonts/jetbrains-mono-500.woff2') format('woff2');
+  }
+
+  /* Archival transfer log: this popup records a long, invisible process,
+     so it is built as a ledger that writes a line for everything it moves. */
+  /* Telegram's palette, read from this user's actual client: a dark theme
+     with a violet accent, not the default blue. Only the values change here —
+     every rule below reads these tokens, so layout, spacing and behaviour are
+     untouched.
+
+     The ground is near-black (its app background) rather than the blue-grey
+     of Telegram's stock night theme. */
+  :root {
+    --vault:  #0E0E0E;   /* app background */
+    --rule:   #2B2B2C;   /* dividers, inactive controls */
+    --ink:    #FFFFFF;   /* primary text */
+    --dim:    #8D8D8F;   /* timestamps, preview lines */
+    --signal: #8675DC;   /* accent: selected row, compose button, sent bubbles */
+    --hover:  #9887E3;   /* accent, lightened */
+    --onblue: #FFFFFF;   /* text on an accent fill */
+    --err:    #E5574A;
+    --ok:     #6FE0C0;   /* the teal of avatars and read checks */
+
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --disp: 'Space Grotesk', system-ui, sans-serif;
+    --sys: system-ui, -apple-system, sans-serif;
+  }
+
+  /* Telegram Web is dark by default; a light popup beside it reads as a
+     different application. Light mode is supported but not the primary. */
+  /* Only applies when no live theme was borrowed from Telegram: an applied
+     theme sets data-themed on :root, and its inline values must not be
+     overridden by the OS preference (a dark Telegram under a light OS). */
+  @media (prefers-color-scheme: light) {
+    :root:not([data-themed]) {
+      --vault: #FFFFFF;
+      --rule:  #DFE1E5;
+      --ink:   #000000;
+      --dim:   #707579;
+      /* The accent holds across both themes, as it does in Telegram. */
+    }
+  }
+
+
+  * { box-sizing: border-box; }
+
+  body {
+    width: 320px; margin: 0;
+    min-height: 420px; display: flex; flex-direction: column;
+    background: var(--vault); color: var(--ink);
+    font: 13px/1.5 var(--sys);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---- masthead ---------------------------------------------------- */
+  header {
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+  h1 {
+    margin: 0;
+    font: 600 15px/1.1 var(--disp);
+    letter-spacing: -0.02em;
+  }
+  .sub {
+    margin-top: 3px;
+    font: 400 10px/1.4 var(--mono);
+    color: var(--dim);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  /* Accent dot: lit only while work is running. The one live accent. */
+  .lamp {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--rule); margin-right: 6px; vertical-align: 1px;
+  }
+  body.busy .lamp { background: var(--signal); animation: pulse 1.4s ease-in-out infinite; }
+  body.done .lamp { background: var(--ok); }
+  body.fail .lamp { background: var(--err); }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+
+  main { padding: 14px 16px 16px; flex: 1; }
+
+  /* ---- buttons ----------------------------------------------------- */
+  button {
+    width: 100%; padding: 9px 12px;
+    font: 500 12.5px/1 var(--disp);
+    letter-spacing: 0.01em;
+    border: 1px solid var(--rule); border-radius: 3px;
+    background: transparent; color: var(--ink);
+    cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s, opacity .15s;
+  }
+  button:hover:not(:disabled) { border-color: var(--dim); }
+  /* The accent marks the one action worth taking now, never the whole
+     toolbar. White on Telegram's #3390EC is 3.31:1 — what Telegram itself
+     ships, but under the 4.5:1 body-text threshold. The blue is kept
+     authentic and the label bumped to 600 for legibility instead. */
+  #go:not(:disabled) {
+    border-color: var(--signal); background: var(--signal); color: var(--onblue);
+    font-weight: 600;
+  }
+  #go:not(:disabled):hover { background: var(--hover); border-color: var(--hover); }
+  button:disabled { opacity: .38; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  #go { margin-top: 10px; }
+  /* Stop is a quiet control: it interrupts, it does not invite. The accent stays
+     reserved for the action that produces the archive. */
+  #stop { border-color: var(--rule); color: var(--dim); }
+  #stop:hover:not(:disabled) { border-color: var(--err); color: var(--err); }
+  /* Continue resumes a stopped scan; it sits under Scan rather than replacing
+     it, so both "start over" and "carry on" stay reachable. */
+  #more { margin-top: 8px; }
+
+  /* A partial manifest is a floor, not a total: say so on the rule itself. */
+  .bar.partial::after {
+    content: 'partial';
+    color: var(--err); letter-spacing: 0.1em;
+  }
+
+  /* ---- manifest: the type list IS the ledger ----------------------- */
+  #types { margin: 14px 0 0; }
+  #types.empty { display: none; }
+
+  .bar {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding-bottom: 6px; margin-bottom: 2px;
+    border-bottom: 1px solid var(--rule);
+    font: 500 9px/1 var(--mono);
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim);
+  }
+  .bar span { cursor: default; }
+  .bar a {
+    color: var(--dim); text-decoration: none; cursor: pointer;
+    border-bottom: 1px solid transparent;
+  }
+  .bar a:hover, .bar a:focus-visible { color: var(--signal); border-bottom-color: var(--signal); }
+  .bar a:focus-visible { outline: none; }
+
+  .row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row label {
+    flex: 1; cursor: pointer;
+    font: 400 12.5px/1 var(--sys);
+  }
+  /* Counts are tallies: mono + tabular so the column never twitches. */
+  .row .n {
+    font: 500 12px/1 var(--mono);
+    color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .row input:checked ~ .n { color: var(--ink); }
+  .row:has(input:checked) label { color: var(--ink); }
+  .row:has(input:not(:checked)) label { color: var(--dim); }
+
+  input[type=checkbox] {
+    appearance: none; -webkit-appearance: none;
+    width: 14px; height: 14px; margin: 0; flex: none;
+    border: 1px solid var(--rule); border-radius: 2px;
+    background: transparent; cursor: pointer;
+    display: grid; place-content: center;
+  }
+  input[type=checkbox]:checked { border-color: var(--signal); background: var(--signal); }
+  input[type=checkbox]:checked::after {
+    content: ''; width: 7px; height: 4px;
+    border: 1.5px solid var(--onblue); border-top: 0; border-right: 0;
+    transform: rotate(-45deg) translate(0.5px, -1px);
+  }
+  input[type=checkbox]:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  /* ---- signature: the transfer log -------------------------------- */
+  /* No progress bar. This process cannot know its total, so a bar would
+     draw a lie; the log states only what has actually happened. */
+  #status {
+    margin-top: 14px;
+    border-top: 1px solid var(--rule);
+    padding-top: 10px;
+    max-height: 132px; overflow-y: auto;
+    font: 400 11px/1.65 var(--mono);
+    color: var(--dim);
+    scrollbar-width: thin; scrollbar-color: var(--rule) transparent;
+  }
+  #status:empty { display: none; }
+
+  /* Idle placeholder: replaced by the manifest as soon as a scan completes. */
+  #hint {
+    margin-top: 16px; padding-top: 14px;
+    border-top: 1px solid var(--rule);
+    font: 400 11.5px/1.65 var(--sys);
+    color: var(--dim);
+  }
+  #hint b {
+    display: block; margin-bottom: 5px;
+    font: 500 9px/1 var(--mono);
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim);
+  }
+  #hint p { margin: 0 0 7px; }
+  #hint p:last-child { margin-bottom: 0; }
+  #hint em { font-style: normal; color: var(--ink); }
+  #status .line { display: flex; gap: 8px; }
+  #status .t { color: var(--rule); flex: none; font-variant-numeric: tabular-nums; }
+  #status .line.live .m { color: var(--signal); }
+  #status .line.ok   .m { color: var(--ok); }
+  #status .line.err  .m { color: var(--err); }
+  /* Indented detail lines hang under their summary rather than competing. */
+  #status .line.detail .m { color: var(--dim); padding-left: 10px;
+                            border-left: 1px solid var(--rule); }
+  #status .m { word-break: break-word; }
+
+  footer {
+    margin-top: auto;
+    padding: 10px 16px 13px;
+    border-top: 1px solid var(--rule);
+    font: 400 10px/1.5 var(--mono);
+    color: var(--dim);
+    letter-spacing: 0.03em;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<header>
+  <h1>Telegram Media Archiver</h1>
+  <div class="sub"><span class="lamp"></span><span id="state">Idle</span></div>
+</header>
+
+<main>
+  <button id="scan">Scan chat</button>
+  <button id="stop" hidden>Stop and keep what was found</button>
+  <button id="more" hidden>Continue scanning</button>
+  <div id="types" class="empty"></div>
+
+  <div id="hint">
+    <b>What happens</b>
+    <p>Scanning scrolls the whole chat and counts what it finds, by type.
+       Nothing downloads yet.</p>
+    <p>You then pick the types to keep and get one <em>.zip</em>, foldered
+       by type.</p>
+  </div>
+  <button id="go" class="ghost" hidden>Download selected</button>
+  <div id="status" role="log" aria-live="polite"></div>
+</main>
+
+<footer>Open a chat first. Keep the tab in front while it runs.</footer>
+
+<script type="module" src="main.js"></script>

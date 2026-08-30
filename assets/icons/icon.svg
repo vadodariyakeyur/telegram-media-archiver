@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img"
+     aria-label="Media Archiver">
+  <!-- Same language as the popup: Telegram's dark ground, its violet accent.
+       An arrow descending onto a baseline: media pulled down into the
+       archive.
+
+       Tuned for 16px, not for this canvas. The mark is inset and the gap
+       between arrowhead and floor widened, because at toolbar size a tighter
+       version fuses into a single blob. -->
+  <rect width="128" height="128" rx="27" fill="#0E0E0E"/>
+  <g fill="none" stroke="#8675DC" stroke-width="12"
+     stroke-linecap="round" stroke-linejoin="round">
+    <!-- shaft -->
+    <path d="M64 28 V68"/>
+    <!-- head -->
+    <path d="M45 52 L64 71 L83 52"/>
+    <!-- the archive floor the media lands on -->
+    <path d="M38 99 H90"/>
+  </g>
+</svg>
