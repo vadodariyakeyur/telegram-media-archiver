@@ -1,0 +1,227 @@
+/* Vendored locally: MV3's default CSP blocks remote stylesheets, so a Google
+   Fonts <link> silently no-ops and falls back to system faces. */
+@font-face {
+  font-family: 'Space Grotesk'; font-style: normal; font-weight: 600;
+  font-display: swap; src: url('../../assets/fonts/space-grotesk-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400;
+  font-display: swap; src: url('../../assets/fonts/jetbrains-mono-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono'; font-style: normal; font-weight: 500;
+  font-display: swap; src: url('../../assets/fonts/jetbrains-mono-500.woff2') format('woff2');
+}
+
+/* Fallback palette only — useTheme overwrites these tokens with the live
+   client's colours. Every rule below reads the tokens, never a literal. */
+:root {
+  --vault:  #0E0E0E;   /* app background */
+  --rule:   #2B2B2C;   /* dividers, inactive controls */
+  --ink:    #FFFFFF;   /* primary text */
+  --dim:    #8D8D8F;   /* timestamps, preview lines */
+  --signal: #8675DC;   /* accent: selected row, compose button, sent bubbles */
+  --hover:  #9887E3;   /* accent, lightened */
+  --onblue: #FFFFFF;   /* text on an accent fill */
+  --err:    #E5574A;
+  --ok:     #6FE0C0;   /* the teal of avatars and read checks */
+
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --disp: 'Space Grotesk', system-ui, sans-serif;
+  --sys: system-ui, -apple-system, sans-serif;
+}
+
+/* Only when no live theme was borrowed: an applied theme sets data-themed on
+   :root, and its inline values must not lose to the OS preference (a dark
+   Telegram under a light OS). */
+@media (prefers-color-scheme: light) {
+  :root:not([data-themed]) {
+    --vault: #FFFFFF;
+    --rule:  #DFE1E5;
+    --ink:   #000000;
+    --dim:   #707579;
+  }
+}
+
+* { box-sizing: border-box; }
+
+/* The side panel host sizes the frame and the user can drag it wider, so
+   never fix a width. */
+html, body { height: 100%; }
+body {
+  margin: 0;
+  display: flex; flex-direction: column;
+  background: var(--vault); color: var(--ink);
+  font: 13px/1.5 var(--sys);
+  -webkit-font-smoothing: antialiased;
+}
+
+header {
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--rule);
+}
+h1 {
+  margin: 0;
+  font: 600 15px/1.1 var(--disp);
+  letter-spacing: -0.02em;
+}
+.sub {
+  margin-top: 3px;
+  font: 400 10px/1.4 var(--mono);
+  color: var(--dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.lamp {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--rule); margin-right: 6px; vertical-align: 1px;
+}
+body.busy .lamp { background: var(--signal); animation: pulse 1.4s ease-in-out infinite; }
+body.done .lamp { background: var(--ok); }
+body.fail .lamp { background: var(--err); }
+@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+
+main { padding: 14px 16px 16px; flex: 1; overflow-y: auto; }
+
+button {
+  width: 100%; padding: 9px 12px;
+  font: 500 12.5px/1 var(--disp);
+  letter-spacing: 0.01em;
+  border: 1px solid var(--rule); border-radius: 3px;
+  background: transparent; color: var(--ink);
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s, opacity .15s;
+}
+button:hover:not(:disabled) { border-color: var(--dim); }
+/* White on Telegram's #3390EC is 3.31:1 — what Telegram itself ships, but
+   under the 4.5:1 body-text threshold. The accent is kept authentic and the
+   label bumped to 600 for legibility instead. */
+#go:not(:disabled) {
+  border-color: var(--signal); background: var(--signal); color: var(--onblue);
+  font-weight: 600;
+}
+#go:not(:disabled):hover { background: var(--hover); border-color: var(--hover); }
+button:disabled { opacity: .38; cursor: default; }
+button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+#go { margin-top: 10px; }
+#stop { border-color: var(--rule); color: var(--dim); }
+#stop:hover:not(:disabled) { border-color: var(--err); color: var(--err); }
+#more { margin-top: 8px; }
+
+.bar.partial::after {
+  content: 'partial';
+  color: var(--err); letter-spacing: 0.1em;
+}
+
+#types { margin: 14px 0 0; }
+#types.empty { display: none; }
+
+.bar {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding-bottom: 6px; margin-bottom: 2px;
+  border-bottom: 1px solid var(--rule);
+  font: 500 9px/1 var(--mono);
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim);
+}
+.bar span { cursor: default; }
+.bar a {
+  color: var(--dim); text-decoration: none; cursor: pointer;
+  border-bottom: 1px solid transparent;
+}
+.bar a:hover, .bar a:focus-visible { color: var(--signal); border-bottom-color: var(--signal); }
+.bar a:focus-visible { outline: none; }
+
+.row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.row:last-child { border-bottom: 0; }
+.row label {
+  flex: 1; cursor: pointer;
+  font: 400 12.5px/1 var(--sys);
+}
+/* tabular-nums so the count column never twitches as digits change. */
+.row .n {
+  font: 500 12px/1 var(--mono);
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.row input:checked ~ .n { color: var(--ink); }
+.row:has(input:checked) label { color: var(--ink); }
+.row:has(input:not(:checked)) label { color: var(--dim); }
+
+input[type=checkbox] {
+  appearance: none; -webkit-appearance: none;
+  width: 14px; height: 14px; margin: 0; flex: none;
+  border: 1px solid var(--rule); border-radius: 2px;
+  background: transparent; cursor: pointer;
+  display: grid; place-content: center;
+}
+input[type=checkbox]:checked { border-color: var(--signal); background: var(--signal); }
+input[type=checkbox]:checked::after {
+  content: ''; width: 7px; height: 4px;
+  border: 1.5px solid var(--onblue); border-top: 0; border-right: 0;
+  transform: rotate(-45deg) translate(0.5px, -1px);
+}
+input[type=checkbox]:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+/* No progress bar: the scan cannot know its total, so a bar would draw a
+   lie. The log states only what has actually happened. */
+#status {
+  margin-top: 14px;
+  border-top: 1px solid var(--rule);
+  padding-top: 10px;
+  max-height: 40vh; overflow-y: auto;
+  font: 400 11px/1.65 var(--mono);
+  color: var(--dim);
+  scrollbar-width: thin; scrollbar-color: var(--rule) transparent;
+}
+#status:empty { display: none; }
+
+#hint {
+  margin-top: 16px; padding-top: 14px;
+  border-top: 1px solid var(--rule);
+  font: 400 11.5px/1.65 var(--sys);
+  color: var(--dim);
+}
+#hint b {
+  display: block; margin-bottom: 5px;
+  font: 500 9px/1 var(--mono);
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim);
+}
+#hint p { margin: 0 0 7px; }
+#hint p:last-child { margin-bottom: 0; }
+#hint em { font-style: normal; color: var(--ink); }
+/* The one thing in the panel that names the chat being archived, so it takes
+   the accent rather than the header's dim grey. text-transform: none because
+   the header uppercases, and a chat name is not the panel's to shout. */
+#hint b .chat {
+  color: var(--signal);
+  text-transform: none; letter-spacing: 0.02em;
+}
+#status .line { display: flex; gap: 8px; }
+/* --dim, not --rule: a divider colour is invisible as text against the
+   panel, which is what a timestamp column had been. */
+#status .t { color: var(--dim); flex: none; font-variant-numeric: tabular-nums; }
+#status .line.live .m { color: var(--signal); }
+#status .line.ok   .m { color: var(--ok); }
+#status .line.err  .m { color: var(--err); }
+#status .line.detail .m { color: var(--dim); padding-left: 10px;
+                          border-left: 1px solid var(--rule); }
+#status .m { word-break: break-word; }
+
+footer {
+  margin-top: auto;
+  padding: 10px 16px 13px;
+  border-top: 1px solid var(--rule);
+  font: 400 10px/1.5 var(--mono);
+  color: var(--dim);
+  letter-spacing: 0.03em;
+  text-align: center;
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

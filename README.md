@@ -5,9 +5,11 @@ as a single zip. Scan first to see what's there, then pick which types to save.
 
 ## Install
 
-1. Go to `chrome://extensions`
-2. Turn on **Developer mode** (top right)
-3. **Load unpacked** → select this folder
+1. `pnpm install`
+2. `pnpm build` (or `pnpm dev` for a dev server with hot reload)
+3. Go to `chrome://extensions`
+4. Turn on **Developer mode** (top right)
+5. **Load unpacked** → select `.output/chrome-mv3` (or `.output/chrome-mv3-dev` under `pnpm dev`)
 
 ## Use
 
@@ -53,11 +55,11 @@ so its `fetch()` bypasses that service worker, hits the network directly, and
 gets back a bare `302` whose `Location` header is not readable cross-origin.
 Chasing the redirect manually does not work for the same reason.
 
-So the fetch is delegated to `page_fetch.js`, which the manifest injects with
-`"world": "MAIN"` — the page's own JS context, where `fetch()` goes through the
-service worker like any Telegram request. The two worlds share no globals, so
-they talk over `window.postMessage`, and the assembled bytes come back as a
-transferable `ArrayBuffer`.
+So the fetch is delegated to `entrypoints/page-bridge.content.ts`, declared
+with `world: 'MAIN'` — the page's own JS context, where `fetch()` goes through
+the service worker like any Telegram request. The two worlds share no
+globals, so they talk over `window.postMessage`, and the assembled bytes come
+back as a transferable `ArrayBuffer`.
 
 Telegram **virtualizes the message list**: it keeps only a window of messages
 in the DOM and recycles the same node objects as you scroll. Two consequences
@@ -95,7 +97,7 @@ The popup borrows the open Telegram client's theme at runtime rather than
 shipping a fixed palette — a hardcoded one is wrong for anyone running a
 custom accent or theme.
 
-`src/content/15-theme.js` reads Telegram's CSS custom properties off `:root`.
+`tw-sdk/theme.ts` reads Telegram's CSS custom properties off `:root`.
 Property names differ between the `/k/` and `/a/` clients and have changed
 across builds, so it tries known names first and then *discovers* any
 colour-valued custom properties whose names match the right shape. Values are
@@ -122,8 +124,8 @@ for pale accents (yellow, mint) where white actually fails.
 
 ### Scrolling
 
-Scrolling is animated (`TG.glideTo`) and paced by observation rather than a
-fixed delay (`TG.waitFor`).
+Scrolling is animated (`glideTo` in `tw-sdk/dom.ts`) and paced by observation
+rather than a fixed delay (`Run.waitFor` in `tw-sdk/run.ts`).
 
 The important constraint is that **`glideTo` resolves only once the move has
 landed**. The scan loop reads `scrollTop` immediately after moving to decide
@@ -132,13 +134,27 @@ whether it moved, whether the list grew, and whether it reached the top. CSS
 so the loop would mis-detect a stall, stop early, and silently lose media.
 Awaiting a self-driven animation keeps those reads truthful.
 
-`waitFor` replaces the old fixed 700ms-per-step delay: the wait existed for
-Telegram to render newly visible media, which is observable, so a responsive
-chat proceeds in roughly 250ms while a lagging one still gets the full budget.
+The scan trades speed for completeness, because a miss is permanent: Telegram
+unmounts a row once it leaves the window, so media not harvested while it was
+rendered is gone unless the scan passes over it again.
+
+- **Half-screen steps.** Every row is rendered at two consecutive stops. A
+  full-screen step gives each row one chance to be caught mid-load.
+- **Settle, don't first-hit.** At each stop the scan keeps harvesting until the
+  screenful stops yielding anything new (`SETTLE_QUIET`), rather than moving on
+  as soon as one item appears. A screenful paints progressively; leaving on the
+  first item abandoned the rest of it, and that alone lost roughly half a chat.
+- **Two passes.** Bottom to top, then back down. A row still loading when the
+  scan went past it is unmounted before it paints, and the return trip is the
+  only thing that gives it a second chance. The scan therefore ends at the
+  bottom; `exhausted` records that the top was reached, not the final position.
+- **Growth, not stalls, ends a direction.** Reaching an end only finishes the
+  sweep if `scrollHeight` stops growing after a wait — scrolling to the top is
+  what makes Telegram prepend older history.
 
 Two deliberate exceptions:
 
-- The **deep sweep** in `60-locate.js` is not animated. It is time-boxed, so
+- The **deep sweep** in `tw-sdk/locate.ts` is not animated. It is time-boxed, so
   every frame spent gliding is a frame not spent searching.
 - `prefers-reduced-motion` jumps instead of animating, and still lands exactly.
 
@@ -181,8 +197,8 @@ would keep scrolling the new chat and merge both chats' media into one result �
 worse than stale data, because nothing about the output looks wrong.
 
 Cancellation works by checkpoint. Every long pass already awaits between steps,
-so those awaits became `TG.pause()`, which re-checks the chat on resume and
-throws `TG.Cancelled`. The cross-world fetch needed its own watcher: it
+so those awaits became `Run.pause()`, which re-checks the chat on resume and
+throws `Cancelled`. The cross-world fetch needed its own watcher: it
 resolves only on done/error, so a large video would otherwise outlive the
 switch by minutes. A `Cancelled` unwinds to `begin()`, which drops the partial
 result and resets the popup rather than reporting a failure.
@@ -190,8 +206,9 @@ result and resets the popup rather than reporting a failure.
 ## Known limits
 
 - If a video fails with `HTTP 302`, the `MAIN`-world script is not running:
-  check that `page_fetch.js` loaded and that the extension was fully reloaded
-  after any manifest change (Chrome does not hot-reload `world` declarations).
+  check that `page-bridge.content.ts` loaded and that the extension was fully
+  reloaded after any manifest change (Chrome does not hot-reload `world`
+  declarations).
 - The video pass is slow and visibly drives the UI: each video is opened,
   fetched, and closed in turn. Leave the tab alone while it runs. On a chat
   with hundreds of videos this legitimately takes many minutes.
@@ -224,49 +241,46 @@ result and resets the popup rather than reporting a failure.
 
 ## Layout
 
-    manifest.json           MV3 manifest; content-script load order lives here
-    src/
-      content/              isolated-world modules, loaded in filename order
-        00-namespace.js     the TG namespace + shared sleep()
-        05-run.js           one run: cancellation, stop, checkpoints
-        10-dom.js           message list, chat name/identity, glideTo
-        15-theme.js         reads Telegram's live theme
-        20-classify.js      what kind of media a bubble holds
-        30-bridge.js        client half of the cross-world fetch
-        40-viewer.js        driving Telegram's media viewer
-        50-scan.js          scroll the chat, inventory what is there
-        60-locate.js        re-finding recycled message nodes
-        70-collect.js       fetch the bytes the scan could only queue
-        80-archive.js       pack (buildArchive) + save (saveBlob)
-        90-session.js       what was scanned, and what may follow
-        99-main.js          run state + the popup message contract
-      page/
-        fetch-bridge.js     MAIN-world Range fetch (see below)
-      popup/
-        popup.html          markup + styles
-        main.js             entry point (ES module)
-        ui/                 dom, log, tabs, manifest, render
-      vendor/jszip.min.js
+Built on [WXT](https://wxt.dev): `wxt.config.ts` supplies the manifest fields,
+and the manifest itself (background/content_scripts/side_panel) is generated
+from the `entrypoints/` directory structure at build time.
+
+    wxt.config.ts
+    tw-sdk/                  pure Telegram-DOM logic, no chrome.* — importable
+                             from tests and entrypoints alike
+      run.ts                 one run: cancellation, stop, checkpoints
+      dom.ts                 message list, chat name/identity, glideTo
+      theme.ts               reads Telegram's live theme
+      classify.ts            what kind of media a bubble holds
+      viewer.ts               driving Telegram's media viewer
+      scan.ts                 scroll the chat, inventory what is there
+      locate.ts               re-finding recycled message nodes
+      archive.ts              pack (buildArchive) + save (saveBlob)
+      session.ts              what was scanned, and what may follow
+      utils.ts, types.ts
+    entrypoints/
+      background.ts
+      content.ts               run state + the panel message contract
+      content/
+        bridge.ts              client half of the cross-world fetch
+        collect.ts             fetch the bytes the scan could only queue
+      page-bridge.content.ts   MAIN-world Range fetch (see below)
+      sidepanel/
+        index.html, main.tsx, App.tsx
+        components/            Hint, ManifestList, StatusLog (React)
+        hooks/                 useActiveTab, useTheme, useRunState
+        style.css
     assets/
-      fonts/                vendored woff2 subsets
-      icons/                icon.svg (source) + 16/32/48/128 PNGs
-    test/                   standalone suites + runner
-    tools/                  naming.js (name source), check.js, package.js
-
-### Why two module systems
-
-MV3 declares content scripts as **classic scripts**, so `import` is unavailable
-there. Those files share one scope per world and run in the order the manifest
-lists them, so each hangs its exports on a `TG` namespace and the numeric
-filename prefixes make the load order visible on disk. `tools/check.js` proves
-that order is correct — that no module uses a symbol defined by a later one.
-
-The popup is an extension page, so it uses real ES modules with `import` /
-`export` and no namespace object.
+      fonts/                   vendored woff2 subsets, imported from style.css
+    public/
+      icons/                   icon.svg (source) + 16/32/48/128 PNGs — copied
+                               verbatim into the build, unlike assets/
+    test/                      Vitest suites
+    tools/                     naming.ts (name source), check.ts
 
 ### Icon
 
-`assets/icons/icon.svg` is the source; the four PNGs Chrome asks for are
+`public/icons/icon.svg` is the source; the four PNGs Chrome asks for are
 rendered from it. The mark is an arrow descending onto a baseline — media
 pulled down into the archive. Unlike the popup it cannot borrow the live
 theme (Chrome renders it before any page is open), so it ships a fixed dark
@@ -277,17 +291,17 @@ correct large but fused into a blob in the toolbar, so the mark is inset and
 the gap between arrowhead and floor widened. Judge any change at actual size.
 
 To re-render after editing the SVG, rasterize it to 16/32/48/128 and re-run
-`npm run check`, which verifies each PNG's real pixel dimensions — a wrong-size
+`pnpm check`, which verifies each PNG's real pixel dimensions — a wrong-size
 icon otherwise fails silently as a grey puzzle piece.
 
 ### Naming
 
-`tools/naming.js` is the single source of truth. It defines four values:
+`tools/naming.ts` is the single source of truth. It defines four values:
 
 | field | value | used by |
 |---|---|---|
-| `product` | Telegram Media Archiver | manifest name, README heading, `<title>` |
-| `short` | Telegram Media Archiver | popup masthead, toolbar tooltip |
+| `product` | Telegram Media Archiver | `wxt.config.ts` manifest name, README heading, panel `<title>` |
+| `short` | Telegram Media Archiver | panel masthead, toolbar tooltip |
 | `slug` | telegram-media-archiver | package name, zip artifact |
 | `description` | one sentence | manifest and package, verbatim |
 
@@ -297,20 +311,21 @@ it renders at 170px against a 288px budget, so the shortening bought nothing
 and two names for one extension only ever read as two products. The field is
 kept so callers have a single name to read.
 
-`npm run check` fails if any surface drifts from these values, so a name can
+`pnpm check` fails if any surface drifts from these values, so a name can
 only be changed in one place.
 
 ## Commands
 
-    npm test        run every suite (6 suites, standalone, no framework)
-    npm run check   manifest, module graph, load order, asset paths
-    npm run build   dist/<name>-<version>.zip, gated on check
+    pnpm dev      wxt dev server with hot reload (.output/chrome-mv3-dev)
+    pnpm build    production build (.output/chrome-mv3)
+    pnpm zip      wxt zip — packaged .zip for the store
+    pnpm check    tsc --noEmit + naming/icon/asset checks (tools/check.ts)
+    pnpm test     vitest run — every suite
 
 ## Tests
 
-    npm install          # jsdom, for the DOM-backed suites
-    npm test             # all six
+    pnpm install
+    pnpm test
 
-All suites except `test_range.js` skip themselves when jsdom is absent, so it is safe to run in a
-clean checkout. `node_modules` is gitignored and must not be present when
-loading the unpacked extension.
+`node_modules` is gitignored and must not be present when loading the
+unpacked extension directly (use `.output/chrome-mv3` from `pnpm build`).

@@ -5,3 +5,5 @@ dist/
 .scratch/
 docs/agents/
 CLAUDE.md
+.wxt/
+.output/
